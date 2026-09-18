@@ -33,6 +33,16 @@
   .pending-item { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px; margin:6px 0; font-size:14px; }
   .file-item, .event-item { font-size:13px; color:var(--dim); margin:4px 0; }
   .muted { color:var(--dim); font-size:13px; }
+  @media (max-width: 760px) {
+    header { flex-wrap:wrap; gap:6px 12px; padding:10px 14px; }
+    main { display:block; height:auto; }
+    section { border-right:0; border-bottom:1px solid var(--line); padding:12px 14px; overflow:visible; }
+    #chatlog { min-height:30vh; }
+    .msg { max-width:92%; }
+    #chatform { bottom:0; }
+    #jobs { overflow-x:auto; }
+    table { min-width:520px; }
+  }
 </style>
 </head>
 <body>
