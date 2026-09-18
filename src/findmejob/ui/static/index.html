@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>findmejob</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#262b36; --text:#e6e9ef; --dim:#9aa3b2; --accent:#4f8cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:12px 20px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:baseline; }
+  header h1 { font-size:17px; margin:0; }
+  header span { color:var(--dim); font-size:13px; }
+  main { display:grid; grid-template-columns: 1fr 1fr; gap:0; height:calc(100vh - 50px); }
+  section { border-right:1px solid var(--line); overflow-y:auto; padding:16px 20px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:18px 0 8px; }
+  #chatlog { min-height:40vh; }
+  .msg { margin:8px 0; padding:8px 12px; border-radius:10px; max-width:85%; white-space:pre-wrap; }
+  .user { background:var(--accent); color:#fff; margin-left:auto; }
+  .agent { background:var(--panel); border:1px solid var(--line); }
+  #chatform { display:flex; gap:8px; margin-top:10px; position:sticky; bottom:0; background:var(--bg); padding:8px 0; }
+  #chatform input { flex:1; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--text); }
+  #chatform button { padding:10px 16px; border-radius:8px; border:0; background:var(--accent); color:#fff; cursor:pointer; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:600; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px; border:1px solid var(--line); }
+  .pill.applied { border-color:#3fb27f; color:#3fb27f; }
+  .pill.needs_input, .pill.blocked { border-color:#e0a13e; color:#e0a13e; }
+  .pill.shortlisted { border-color:var(--accent); color:var(--accent); }
+  .pill.skipped, .pill.rejected { color:var(--dim); }
+  a { color:var(--accent); }
+  .pending-item { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px; margin:6px 0; font-size:14px; }
+  .file-item, .event-item { font-size:13px; color:var(--dim); margin:4px 0; }
+  .muted { color:var(--dim); font-size:13px; }
+</style>
+</head>
+<body>
+<header><h1>findmejob</h1><span id="counts"></span><span id="runtime"></span></header>
+<main>
+  <section>
+    <h2>Chat</h2>
+    <div id="chatlog"></div>
+    <form id="chatform"><input id="msg" placeholder="find jobs / status / what's pending / tailor Acme / apply Acme" autocomplete="off"><button>Send</button></form>
+  </section>
+  <section>
+    <h2>Needs your decision</h2><div id="pending"></div>
+    <h2>Tracker</h2><div id="jobs"></div>
+    <h2>Files and evidence</h2><div id="files"></div>
+    <h2>Activity</h2><div id="events"></div>
+  </section>
+</main>
+<script>
+const log = document.getElementById('chatlog');
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function renderMessages(msgs){
+  log.innerHTML = msgs.map(m=>`<div class="msg ${m.role}">${esc(m.text)}</div>`).join('');
+  log.scrollTop = log.scrollHeight;
+}
+async function refresh(){
+  const s = await (await fetch('/api/state')).json();
+  document.getElementById('counts').textContent =
+    Object.entries(s.counts).map(([k,v])=>`${k}: ${v}`).join(' · ');
+  document.getElementById('runtime').textContent = 'runtime: ' + s.runtime;
+  renderMessages(s.messages);
+  document.getElementById('pending').innerHTML = s.pending.length
+    ? s.pending.map((p,i)=>`<div class="pending-item">${i+1}. ${esc(p.question)}</div>`).join('')
+    : '<div class="muted">Nothing waiting on you.</div>';
+  document.getElementById('jobs').innerHTML = s.jobs.length
+    ? '<table><tr><th>Role</th><th>Company</th><th>Score</th><th>Status</th></tr>' +
+      s.jobs.map(j=>`<tr><td>${j.url?`<a href="${j.url}">${esc(j.title)}</a>`:esc(j.title)}</td>`+
+        `<td>${esc(j.company)}</td><td>${j.score??''}</td>`+
+        `<td><span class="pill ${j.status}">${j.status}</span></td></tr>`).join('') + '</table>'
+    : '<div class="muted">No jobs yet. Say "find jobs" in chat.</div>';
+  document.getElementById('files').innerHTML = s.files.length
+    ? s.files.map(f=>`<div class="file-item"><a href="${f.url}">${esc(f.name)}</a> (${f.size} B)</div>`).join('')
+    : '<div class="muted">Tailored CVs, emails and screenshots land here.</div>';
+  document.getElementById('events').innerHTML = s.events
+    .map(e=>`<div class="event-item">${new Date(e.ts*1000).toLocaleString()} - ${esc(e.kind)} ${esc(e.detail||'')}</div>`).join('');
+}
+document.getElementById('chatform').addEventListener('submit', async (ev)=>{
+  ev.preventDefault();
+  const input = document.getElementById('msg');
+  const text = input.value.trim(); if(!text) return;
+  input.value = '';
+  log.insertAdjacentHTML('beforeend', `<div class="msg user">${esc(text)}</div>`);
+  log.scrollTop = log.scrollHeight;
+  await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({message:text})});
+  refresh();
+});
+refresh(); setInterval(refresh, 5000);
+</script>
+</body>
+</html>

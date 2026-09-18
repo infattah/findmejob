@@ -1,0 +1,32 @@
+[
+  {
+    "title": "Growth Marketing Manager",
+    "company": "Fictional Pets Co",
+    "location": "Dubai",
+    "url": "https://example.com/jobs/fictional-pets-growth",
+    "description": "Own paid acquisition across Meta and Google, build lifecycle email programs, and run conversion rate optimization on our e-commerce store. 4+ years in growth or performance marketing. SQL and attribution experience a plus.",
+    "salary_text": "AED 25,000 - 35,000 per month",
+    "posted_at": "2026-09-10",
+    "remote": false
+  },
+  {
+    "title": "Performance Marketing Specialist",
+    "company": "Madeup Travels",
+    "location": "Remote",
+    "url": "https://example.com/jobs/madeup-travels-performance",
+    "description": "Run paid search and paid social for a travel subscription product. Landing page testing, marketing analytics and dashboards. 3+ years experience.",
+    "salary_text": "$70,000 - $90,000 per year",
+    "posted_at": "2026-09-12",
+    "remote": true
+  },
+  {
+    "title": "Junior Marketing Intern",
+    "company": "Sample Studio",
+    "location": "Dubai",
+    "url": "https://example.com/jobs/sample-studio-intern",
+    "description": "Support the marketing team with social posting and admin. Unpaid internship for students.",
+    "salary_text": "",
+    "posted_at": "2026-09-14",
+    "remote": false
+  }
+]

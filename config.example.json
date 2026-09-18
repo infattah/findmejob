@@ -1,0 +1,77 @@
+{
+  "profile": {
+    "master_cv": "data/profile/master_cv.md",
+    "full_name": "",
+    "email": "",
+    "phone": "",
+    "links": {}
+  },
+  "search": {
+    "role_keywords": [
+      "growth marketing",
+      "performance marketing",
+      "digital marketing"
+    ],
+    "sources": [
+      {
+        "type": "remotive",
+        "search": "growth marketing"
+      },
+      {
+        "type": "greenhouse",
+        "board": "exampleco"
+      },
+      {
+        "type": "lever",
+        "company": "exampleco"
+      },
+      {
+        "type": "rss",
+        "url": "https://example.com/jobs.xml",
+        "name": "example-feed"
+      },
+      {
+        "type": "jsonfile",
+        "path": "sample_data/sample_jobs.json"
+      }
+    ]
+  },
+  "policy": {
+    "salary_floor": 0,
+    "currency": "USD",
+    "locations_include": [
+      "Remote",
+      "Dubai"
+    ],
+    "locations_exclude": [],
+    "sector_exclusions": [
+      "sector-you-avoid"
+    ],
+    "title_exclude": [
+      "intern",
+      "unpaid"
+    ],
+    "min_fit_score": 45
+  },
+  "autonomy": {
+    "auto_apply": false,
+    "require_confirmation": true,
+    "max_applications_per_run": 5,
+    "never_pay": true,
+    "never_create_accounts": true
+  },
+  "llm": {
+    "provider": "none",
+    "model": "",
+    "api_key_env": "ANTHROPIC_API_KEY"
+  },
+  "email": {
+    "from_name": "",
+    "signature": ""
+  },
+  "paths": {
+    "db": "data/findmejob.db",
+    "output": "output",
+    "browser_profile": "data/browser-profile"
+  }
+}

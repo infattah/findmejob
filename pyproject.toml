@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "findmejob"
+version = "0.1.0"
+description = "Local-first AI job-search and application copilot: find roles, check fit and policy, tailor your CV, apply with a human in the loop."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [{name = "Abdul Fathah"}]
+keywords = ["jobs", "job-search", "careers", "ai-agents", "automation"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Utilities",
+]
+dependencies = []
+
+[project.optional-dependencies]
+browser = ["playwright>=1.40"]
+llm-anthropic = ["anthropic>=0.39"]
+llm-openai = ["openai>=1.0"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+findmejob = "findmejob.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
