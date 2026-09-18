@@ -39,6 +39,15 @@ def cmd_ingest(args) -> int:
     dest.parent.mkdir(parents=True, exist_ok=True)
     text = extract_text(src)
     dest.write_text(text, encoding="utf-8")
+    # Keep the scaffolded config in sync so the very next command can load the CV.
+    import json
+    cfg_path = cfg.root / "config.json"
+    raw = dict(cfg.raw)
+    profile_cfg = dict(raw.get("profile", {}))
+    profile_cfg["master_cv"] = str(dest.relative_to(cfg.root)) if dest.is_relative_to(cfg.root) else str(dest)
+    raw["profile"] = profile_cfg
+    cfg_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+    cfg.raw = raw
     profile = parse_master_cv(text)
     print(f"Ingested {profile.full_name or 'master CV'}: {len(profile.skills)} skills, "
           f"{len(profile.experiences)} roles, {len(profile.links)} links")
@@ -69,7 +78,11 @@ def cmd_search(args) -> int:
 def cmd_triage(args) -> int:
     cfg = load_config(Path(args.dir) if args.dir else None)
     tracker = Tracker(cfg.db_path)
-    tri = run_triage(cfg, tracker)
+    try:
+        tri = run_triage(cfg, tracker)
+    except FileNotFoundError as exc:
+        print(exc, file=sys.stderr)
+        return 1
     print(f"Shortlisted {tri['shortlisted']}, {tri['needs_review']} need your review, "
           f"{tri['below_floor']} below the bar.")
     return 0
