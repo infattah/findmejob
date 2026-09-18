@@ -154,11 +154,18 @@ class MainAgent:
 
     def _status_reply(self) -> str:
         counts = self.tracker.counts()
-        if not counts:
+        due = self.tracker.due_followups()
+        if not counts and not due:
             return "Tracker is empty. Say 'find jobs' to start."
         parts = [f"{k}: {v}" for k, v in sorted(counts.items())]
         pend = len(self.tracker.pending())
-        return "Jobs - " + ", ".join(parts) + (f". {pend} pending question(s)." if pend else "")
+        reply = "Jobs - " + ", ".join(parts) if parts else "No tracked jobs."
+        if pend:
+            reply += f". {pend} pending question(s)."
+        if due:
+            reply += "\nFollow-ups due: " + "; ".join(
+                f"{d['title']} @ {d['company']}" for d in due)
+        return reply
 
     def _mark(self, query: str, status: str) -> str:
         job_id = self.tracker.resolve_job_id(query)

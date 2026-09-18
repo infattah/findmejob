@@ -88,6 +88,9 @@ class _LockedConn:
             self._conn.close()
 
 
+FOLLOW_UP_DAYS = 7
+
+
 class Tracker:
     def __init__(self, db_path: Path | str):
         self.db_path = Path(db_path)
@@ -96,6 +99,11 @@ class Tracker:
         raw.row_factory = sqlite3.Row
         self.conn = _LockedConn(raw)
         self.conn.executescript(_SCHEMA)
+        try:
+            self.conn.execute("ALTER TABLE jobs ADD COLUMN follow_up REAL")
+            self.conn.commit()
+        except Exception:
+            pass  # column already exists
 
     def close(self) -> None:
         self.conn.close()
@@ -137,10 +145,21 @@ class Tracker:
     def set_status(self, job_id: str, status: str, note: str = "") -> None:
         if status not in STATUSES:
             raise ValueError(f"unknown status {status}")
-        self.conn.execute("UPDATE jobs SET status=?, notes=CASE WHEN ?='' THEN notes ELSE ? END, updated=? WHERE id=?",
-                          (status, note, note, time.time(), job_id))
+        follow_up = time.time() + FOLLOW_UP_DAYS * 86400 if status == "applied" else None
+        self.conn.execute(
+            "UPDATE jobs SET status=?, notes=CASE WHEN ?='' THEN notes ELSE ? END, updated=?,"
+            " follow_up=COALESCE(?, follow_up) WHERE id=?",
+            (status, note, note, time.time(), follow_up, job_id))
         self.add_event(job_id, "status", f"{status}" + (f": {note}" if note else ""))
         self.conn.commit()
+
+    def due_followups(self) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT id, data, follow_up FROM jobs WHERE status='applied' AND follow_up IS NOT NULL"
+            " AND follow_up <= ?", (time.time(),)).fetchall()
+        return [{"id": r["id"], "follow_up": r["follow_up"],
+                 "title": json.loads(r["data"]).get("title", ""),
+                 "company": json.loads(r["data"]).get("company", "")} for r in rows]
 
     def list_jobs(self, status: str | None = None) -> list[dict[str, Any]]:
         q = "SELECT * FROM jobs" + (" WHERE status=?" if status else "") + " ORDER BY updated DESC"

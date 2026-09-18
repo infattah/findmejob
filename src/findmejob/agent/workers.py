@@ -65,7 +65,9 @@ def _tailor(payload: dict, cfg: Config, tracker: Tracker) -> AgentResult:
     if res["fidelity_warnings"]:
         needs.append(f"Review tailored CV for {res['job_id']}: terms not in master CV: "
                      + ", ".join(res["fidelity_warnings"][:6]))
-    return AgentResult(True, f"tailored CV + email ready for {res['job_id']}",
+    return AgentResult(True,
+                       f"Tailored CV and short email ready for {res['job_id']}.\n"
+                       f"CV: {res['cv']}\nEmail: {res['email']}",
                        data=res, needs_user=needs)
 
 
