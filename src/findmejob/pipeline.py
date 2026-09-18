@@ -31,7 +31,14 @@ def load_profile(cfg: Config) -> Profile:
 
 
 def run_search(cfg: Config, tracker: Tracker) -> dict[str, Any]:
-    specs = cfg.search.get("sources", [])
+    # Source paths in config.json are relative to the project root, not the
+    # shell's current directory. This keeps --dir and the web UI consistent.
+    specs = []
+    for raw_spec in cfg.search.get("sources", []):
+        spec = dict(raw_spec)
+        if spec.get("type") == "jsonfile" and spec.get("path"):
+            spec["path"] = str(cfg.resolve(spec["path"]))
+        specs.append(spec)
     jobs, errors = fetch_all(specs)
     new_count = 0
     for job in jobs:
