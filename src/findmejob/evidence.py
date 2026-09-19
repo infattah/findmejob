@@ -54,7 +54,8 @@ _GENERIC_CAREER_YEARS = re.compile(
 )
 
 _DOMAIN_EQUIVALENTS = (
-    frozenset({"performance", "paid", "acquisition", "media"}),
+    frozenset({"growth", "performance", "promotion", "promotions", "paid", "acquisition", "media"}),
+    frozenset({"brand", "campaign", "campaigns", "project"}),
     frozenset({"digital", "online"}),
     frozenset({"automation", "lifecycle", "crm"}),
 )
@@ -353,8 +354,41 @@ def _domain_overlap(requirement: str, fragment: str) -> tuple[int, float]:
     return overlap, overlap / len(req_tokens)
 
 
+def _match_language(requirement: str, profile: Profile, hard: bool) -> RequirementMatch | None:
+    leading = re.search(r"(?i)\b(fluent|working proficiency|professional proficiency|native|bilingual)\s+(?:in\s+)?(?:written\s+|spoken\s+)?([a-z]+)\b", requirement)
+    trailing = re.search(r"(?i)\b([a-z]+)\s+(fluent|working proficiency|professional proficiency|native|bilingual)\b", requirement)
+    if leading:
+        level, language = leading.group(1).lower(), leading.group(2).lower()
+    elif trailing:
+        language, level = trailing.group(1).lower(), trailing.group(2).lower()
+    else:
+        return None
+    fragments = _profile_evidence_fragments(profile)
+    evidence = next((f for f in fragments if re.search(
+        rf"(?i)\b{re.escape(language)}\b.{{0,50}}\b(?:fluent|working proficiency|professional proficiency|native|bilingual)\b|"
+        rf"\b(?:fluent|working proficiency|professional proficiency|native|bilingual)\b.{{0,50}}\b{re.escape(language)}\b", f)), None)
+    if not evidence:
+        return RequirementMatch(requirement, "missing", [], hard)
+    low=evidence.lower()
+    if level in {"native","bilingual"} and not re.search(r"\b(native|bilingual)\b",low):
+        return RequirementMatch(requirement,"missing",[],hard)
+    return RequirementMatch(requirement,"strong",[f"explicit language evidence: {evidence[:140]}"],hard)
+
+
+def _profession_anchor(tokens: set[str]) -> str | None:
+    # Profession-level anchors can donate overall tenure only when the CV and
+    # requirement share the same anchor. Subdomain evidence is still required.
+    for anchor in ("marketing", "engineering", "sales", "design", "finance", "operations"):
+        if anchor in tokens:
+            return anchor
+    return None
+
+
 def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
     hard = is_hard_requirement(requirement)
+    language = _match_language(requirement, profile, hard)
+    if language is not None:
+        return language
     req_years = _required_years(requirement)
     if req_years is not None:
         fragments = _profile_evidence_fragments(profile)
@@ -378,9 +412,10 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
         # duration with independently bounded domain evidence. A duration tied to
         # consumer retail or another domain is never transferable.
         broad_profession = _year_domain_tokens(requirement)
+        anchor = _profession_anchor(broad_profession)
         generic_numeric = [(years, fragment) for years, fragment in numeric
                            if _GENERIC_CAREER_YEARS.search(fragment)
-                           or (broad_profession and _grounded_domain(requirement, fragment))]
+                           or (anchor and anchor in _tokens(fragment))]
         if generic_numeric and domain_evidence:
             years, duration = max(generic_numeric, key=lambda item: item[0])
             return RequirementMatch(

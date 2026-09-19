@@ -1,0 +1,39 @@
+import unittest
+from findmejob.evidence import evaluate_requirements
+from findmejob.models import JobPosting,Profile,Experience
+
+class TrialSevenDeliverooRegressions(unittest.TestCase):
+    def profile(self):
+        return Profile(summary="Performance marketer with 7+ years in marketing overall. English: fluent professional working proficiency.",skills=["Growth and performance marketing","Promotions, paid acquisition and campaign analytics","Brand building and campaign project management"],experiences=[Experience(role="Marketing Manager",company="Almeka agency",bullets=["Built an education brand end to end and led the campaign team.","Led promotion campaigns and performance reporting."])])
+    def test_growth_marketing_range_combines_total_tenure_with_grounded_work(self):
+        job=JobPosting(title="Marketing Manager, Promotions",company="Deliveroo",description="Responsibilities\nOwn promotional campaigns, CAC and performance analytics.\nRequirements\n- 5-8 years of experience in Growth Marketing")
+        item=evaluate_requirements(self.profile(),job).items[0]
+        self.assertEqual("strong",item.status)
+    def test_brand_campaign_range_combines_total_tenure_with_agency_evidence(self):
+        job=JobPosting(title="Marketing Manager, Brand",company="Deliveroo",description="Responsibilities\nOwn integrated brand campaigns and project delivery.\nRequirements\n- Minimum 6-8 years of experience in brand marketing, campaign and project management")
+        item=evaluate_requirements(self.profile(),job).items[0]
+        self.assertEqual("strong",item.status)
+    def test_unrelated_tenure_cannot_transfer_to_growth(self):
+        p=Profile(summary="Software engineer with 9+ years in software engineering.",skills=["Python"])
+        job=JobPosting(title="Growth Manager",company="Acme",description="Requirements\n- 5-8 years in Growth Marketing")
+        self.assertNotEqual("strong",evaluate_requirements(p,job).items[0].status)
+    def test_generic_marketing_without_growth_evidence_is_not_enough(self):
+        p=Profile(summary="Marketer with 7+ years in corporate communications.")
+        job=JobPosting(title="Growth Manager",company="Acme",description="Requirements\n- 5-8 years in Growth Marketing")
+        self.assertNotEqual("strong",evaluate_requirements(p,job).items[0].status)
+
+class ExplicitLanguageEvidenceTests(unittest.TestCase):
+    def item(self,summary,req):
+        return evaluate_requirements(Profile(summary=summary),JobPosting(title="T",company="C",description="Requirements\n- "+req)).items[0]
+    def test_explicit_fluent_english_grounds_requirement(self):
+        self.assertEqual("strong",self.item("Languages: English - fluent professional working proficiency.","Fluent English").status)
+    def test_english_cv_alone_does_not_ground_fluency(self):
+        self.assertEqual("missing",self.item("Experienced marketer writing a detailed CV in English.","Fluent English").status)
+    def test_working_proficiency_can_ground_fluent_for_work(self):
+        self.assertEqual("strong",self.item("English: professional working proficiency.","Fluent English").status)
+    def test_fluent_does_not_invent_native_or_bilingual(self):
+        self.assertEqual("missing",self.item("English: fluent professional working proficiency.","Native English").status)
+    def test_wrong_language_does_not_transfer(self):
+        self.assertEqual("missing",self.item("Arabic: fluent.","Fluent English").status)
+
+if __name__=='__main__': unittest.main()
