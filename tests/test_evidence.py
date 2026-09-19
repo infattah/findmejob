@@ -155,3 +155,28 @@ class TestFinalReviewCandidateHistoryBoundary(unittest.TestCase):
         for history in histories:
             with self.subTest(history=history):
                 self.assertEqual(extract_requirements(history), [])
+
+
+class TestSingleTokenCompanyHistoryBoundary(unittest.TestCase):
+    def test_single_token_company_names_are_not_candidate_requirements(self):
+        histories = (
+            "Acme has 18 years of experience serving merchants.",
+            "Google has operated for over 20 years.",
+            "Stripe has served merchants for 15 years.",
+            "Nike has delivered products for more than 30 years.",
+        )
+        for history in histories:
+            with self.subTest(history=history):
+                self.assertEqual(extract_requirements(history), [])
+
+    def test_human_and_candidate_subjects_are_not_filtered(self):
+        requirements = (
+            "Candidate has 5 years of experience in growth marketing.",
+            "The ideal candidate has 4+ years of experience in growth marketing.",
+            "The right person has 6+ years of experience in digital marketing.",
+            "You have 4+ years of experience in performance marketing.",
+            "Applicant has 3 years of experience in CRM.",
+        )
+        for requirement in requirements:
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, extract_requirements(requirement))

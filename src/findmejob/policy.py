@@ -135,8 +135,20 @@ def _sector_match(job: JobPosting, configured: str) -> str | None:
             elif identity_match or (re.search(pattern, text) and _FOREX_BUSINESS_CONTEXT.search(text)):
                 return phrase
         return None
-    direct_hotel_identity = bool(re.search(r"\b(?:hotels?|resorts?|lodging|hospitality)\b", identity))
     provider_customer = bool(_TECH_PROVIDER.search(text) and _PROVIDER_CUSTOMER_CONTEXT.search(text))
+    hotel_identity_pattern = r"\b(?:hotels?|resorts?|lodging|hospitality)\b"
+    company_hotel_identity = bool(re.search(hotel_identity_pattern, job.company, re.I))
+    title_hotel_identity = bool(re.search(hotel_identity_pattern, job.title, re.I))
+    # A title can name the provider's customer vertical (for example, "Hotel
+    # Technology Product Manager") without identifying the employer as a hotel.
+    # Only waive title identity when both the title and employer prose ground a
+    # technology/provider-for-hotels context. Company identity always wins.
+    title_provider_vertical = bool(
+        title_hotel_identity and _TECH_PROVIDER.search(job.title) and provider_customer
+    )
+    direct_hotel_identity = company_hotel_identity or (
+        title_hotel_identity and not title_provider_vertical
+    )
     for phrase in candidates:
         if phrase in {"hotel", "resort"}:
             phrase_pattern = r"(?<![a-z0-9])" + re.escape(phrase) + r"s?(?![a-z0-9])"

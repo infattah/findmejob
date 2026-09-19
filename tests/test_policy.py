@@ -331,3 +331,39 @@ class TestFinalReviewPaymentAndHotelBoundaries(unittest.TestCase):
         self.assertEqual(self.verdict(
             "Our SaaS platform serves hotels and hospitality operators.",
             company="Cloud Software Co", policy=policy), "pass")
+
+
+class TestHotelTitleCustomerVerticalBoundary(unittest.TestCase):
+    policy = {"sector_exclusions": ["hotel", "hospitality"]}
+
+    def test_hotel_technology_product_title_at_saas_provider_passes(self):
+        job = JobPosting(
+            title="Hotel Technology Product Manager",
+            company="CloudBeds Tech",
+            description="We are a SaaS platform serving hotels and hospitality operators.",
+        )
+        self.assertEqual(check_job(job, self.policy).verdict, "pass")
+
+    def test_hospitality_saas_title_at_explicit_provider_passes(self):
+        job = JobPosting(
+            title="Hospitality SaaS Product Lead",
+            company="GuestCloud Tech",
+            description="Our technology platform is used by hotels and hospitality operators.",
+        )
+        self.assertEqual(check_job(job, self.policy).verdict, "pass")
+
+    def test_plain_hotel_role_title_still_blocks(self):
+        job = JobPosting(
+            title="Hotel General Manager",
+            company="CloudBeds Tech",
+            description="We are a SaaS platform serving hotels and hospitality operators.",
+        )
+        self.assertEqual(check_job(job, self.policy).verdict, "block")
+
+    def test_direct_hotel_company_identity_always_blocks(self):
+        job = JobPosting(
+            title="Hotel Technology Product Manager",
+            company="Grand Hotel",
+            description="We use a SaaS platform serving hotels and hospitality operators.",
+        )
+        self.assertEqual(check_job(job, self.policy).verdict, "block")

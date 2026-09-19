@@ -37,6 +37,14 @@ _COMPANY_HISTORY_YEARS = re.compile(
     r"(?-i:[A-Z][\w&.-]+\s+[A-Z][\w&.-]+(?:\s+[A-Z][\w&.-]+){0,2})\b)"
     r".{0,20}\b(?:has|have|brings?|boasts?)\s+\d{1,3}\s*(?:\+|plus)?\s*years?"
     r"\s+of\s+experience\b"
+    # A single-token proper company name is common (Acme, Google). Limit this
+    # form to company-history predicates and explicitly reject human/candidate
+    # subjects, rather than treating every capitalized word as an organization.
+    r"|\b(?-i:(?!(?:Candidate|You|Person|Applicant|He|She|They)\b)[A-Z][\w&.-]+)"
+    r"\s+(?:has|have)\s+(?:"
+    r"\d{1,3}\s*(?:\+|plus)?\s*years?\s+of\s+experience\b"
+    r"|(?:operated|served|delivered|built|traded)\b.{0,40}?\b(?:for\s+)?"
+    r"(?:over|more\s+than)?\s*\d{1,3}\s*(?:\+|plus)?\s*years?\b)"
     r")"
 )
 
