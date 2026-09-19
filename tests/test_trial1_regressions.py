@@ -180,3 +180,41 @@ class TrialThreeRecommendationQuality(unittest.TestCase):
             self.assertEqual(result["shortlisted"], 0)
             self.assertLess(tracker.list_jobs()[0]["score"], 45)
             tracker.close()
+
+class TrialThreeEvidenceCompletenessBoundaries(unittest.TestCase):
+    def _cfg(self, root):
+        (root / "cv.md").write_text(
+            "# Candidate\n## Summary\nGrowth marketer with 7+ years\n## Skills\n- Google Ads\n- Paid social\n- Analytics\n- CRO\n",
+            encoding="utf-8")
+        return Config(root=root, raw={
+            "profile": {"master_cv": "cv.md"},
+            "search": {"role_keywords": ["growth marketing"]},
+            "policy": {"min_fit_score": 45},
+            "paths": {"db": "jobs.db", "output": "out", "cache": "cache"},
+        })
+
+    def test_concise_specific_listing_can_be_actionable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); cfg = self._cfg(root); tracker = Tracker(root / "jobs.db")
+            job = JobPosting(title="Growth Marketing Manager", company="Acme", location="Dubai",
+                description="Lead Google Ads, paid social, analytics and CRO for UAE ecommerce. Requires 5+ years. Dubai hybrid, reporting to CMO.")
+            self.assertLess(len(job.description.split()), 30)
+            tracker.upsert_job(job, verdict="pass"); tracker.conn.commit()
+            result = run_triage(cfg, tracker)
+            row = tracker.list_jobs()[0]
+            self.assertEqual(result["shortlisted"], 1)
+            self.assertEqual(row["status"], "shortlisted")
+            tracker.close()
+
+    def test_wordy_title_repetition_remains_insufficient(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); cfg = self._cfg(root); tracker = Tracker(root / "jobs.db")
+            job = JobPosting(title="Growth Marketing Manager", company="Acme", location="Dubai",
+                description=("Growth marketing opportunity. " * 20))
+            tracker.upsert_job(job, verdict="pass"); tracker.conn.commit()
+            result = run_triage(cfg, tracker)
+            row = tracker.list_jobs()[0]
+            self.assertEqual(result["shortlisted"], 0)
+            self.assertEqual(row["status"], "needs_input")
+            self.assertIn("insufficient job evidence", row["notes"])
+            tracker.close()

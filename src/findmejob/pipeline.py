@@ -1,6 +1,8 @@
 """Shared pipeline steps used by both the CLI and the chat engine."""
 from __future__ import annotations
 
+import re
+
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +93,23 @@ def run_search(cfg: Config, tracker: Tracker) -> dict[str, Any]:
             "errors": errors}
 
 
+def _has_substantive_job_evidence(job: JobPosting) -> bool:
+    """Use evidence categories rather than length as a quality proxy."""
+    text = job.description or ""
+    if len(re.findall(r"[A-Za-z][A-Za-z0-9+#.-]*", text)) < 8:
+        return False
+    signals = 0
+    if re.search(r"(?i)\b(?:lead|manage|own|build|create|develop|execute|optimi[sz]e|analy[sz]e|report|drive|launch|plan|deliver|responsible for|responsibilities include)\b", text):
+        signals += 1
+    if re.search(r"(?i)\b(?:requires?|qualifications?|must have|minimum|at least|\d+\s*\+?\s*years?)\b", text):
+        signals += 1
+    if re.search(r"(?i)\b(?:google ads|meta ads|paid social|paid media|analytics|cro|seo|sem|crm|hubspot|salesforce|programmatic|email marketing|a/b test|conversion rate)\b", text):
+        signals += 1
+    if re.search(r"(?i)\b(?:reports? to|reporting to|uae|mena|ecommerce|e-commerce|b2b|b2c|hybrid|remote|in-office)\b", text):
+        signals += 1
+    return signals >= 2
+
+
 def run_triage(cfg: Config, tracker: Tracker) -> dict[str, Any]:
     profile = load_profile(cfg)
     role_keywords = cfg.search.get("role_keywords", [])
@@ -110,10 +129,9 @@ def run_triage(cfg: Config, tracker: Tracker) -> dict[str, Any]:
         _write_fit_report(cfg, tracker, profile, job, fit, evidence)
         verdict = row["policy_verdict"] or "pass"
         hard_reasons = [f"hard requirement not proven: {i.requirement}" for i in evidence.items if i.hard and i.status != "strong"]
-        # A title-only or near-empty listing cannot support an actionable
-        # recommendation, even when its keywords score well. Keep it visible
-        # for review until the official source exposes substantive role facts.
-        evidence_poor = len(job.description.split()) < 30
+        # A title-only listing cannot support an actionable recommendation.
+        # Judge completeness from substantive signals, not arbitrary length.
+        evidence_poor = not _has_substantive_job_evidence(job)
         if verdict == "review" or hard_reasons or evidence_poor:
             policy_reasons = check_job(job, cfg.policy).reasons if verdict == "review" else []
             if evidence_poor:

@@ -86,3 +86,24 @@ class TestContextualSectorPolicy(unittest.TestCase):
                          description="Join our luxury hospitality team at this five-star hotel and resort.")
         result = check_job(job, {"sector_exclusions": ["hospitality"]})
         self.assertEqual(result.verdict, "block")
+
+class TestSectorBoundaryRegressions(unittest.TestCase):
+    def test_neutral_fx_budgeting_is_not_forex_business(self):
+        job = JobPosting(title="Retail Marketing Manager", company="Neutral Retail",
+                         description="Lead campaigns and account for FX and currency conversion in campaign budgets.")
+        self.assertEqual(check_job(job, {"sector_exclusions": ["forex trading"]}).verdict, "pass")
+
+    def test_hotel_technology_words_do_not_override_direct_hotel_identity(self):
+        job = JobPosting(title="Marketing Manager", company="Grand Hotel",
+                         description="Grand Hotel is a luxury hotel. We use a software platform for hospitality operations and guest services.")
+        self.assertEqual(check_job(job, {"sector_exclusions": ["hotel", "hospitality"]}).verdict, "block")
+
+    def test_inline_equal_opportunity_alcohol_copy_is_ignored(self):
+        job = JobPosting(title="Growth Marketing Manager", company="Retail Co",
+                         description="Lead paid media and ecommerce growth. We are an equal opportunity employer. Disability categories include alcoholism and alcohol use disorder.")
+        self.assertEqual(check_job(job, {"sector_exclusions": ["alcohol"]}).verdict, "pass")
+
+    def test_inline_voluntary_self_id_alcohol_copy_is_ignored(self):
+        job = JobPosting(title="Growth Marketing Manager", company="Retail Co",
+                         description="Own acquisition and analytics. Voluntary Self-Identification of Disability: alcoholism and alcohol use disorder.")
+        self.assertEqual(check_job(job, {"sector_exclusions": ["alcohol"]}).verdict, "pass")

@@ -18,6 +18,24 @@ def _tokens(text: str) -> set[str]:
     return {t for t in _TOKEN.findall(text.lower()) if t not in _STOP}
 
 
+def _target_phrase_in_title(keyword: str, title: str) -> bool:
+    """Match target tokens in order, allowing a short inserted specialism."""
+    target = _TOKEN.findall(keyword.lower())
+    words = _TOKEN.findall(title.lower())
+    if not target:
+        return False
+    pos = -1
+    for token in target:
+        try:
+            found = words.index(token, pos + 1)
+        except ValueError:
+            return False
+        if pos >= 0 and found - pos - 1 > 3:
+            return False
+        pos = found
+    return True
+
+
 def score_fit(profile: Profile, job: JobPosting, role_keywords: list[str] | None = None) -> FitScore:
     reasons: list[str] = []
     job_tokens = _tokens(job.search_text())
@@ -35,12 +53,7 @@ def score_fit(profile: Profile, job: JobPosting, role_keywords: list[str] | None
     # A single generic shared word (for example "automation" in a content-
     # operations title) must not turn an adjacent role into a target-role hit.
     # Require the complete normalized target phrase in the title.
-    title_text = " ".join(_TOKEN.findall(job.title.lower()))
-    kw_hits = 0
-    for kw in role_keywords or []:
-        phrase = " ".join(_TOKEN.findall(kw.lower()))
-        if phrase and re.search(r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])", title_text):
-            kw_hits += 1
+    kw_hits = sum(1 for kw in role_keywords or [] if _target_phrase_in_title(kw, job.title))
     title_score = min(30, 15 * kw_hits)
     if kw_hits:
         reasons.append(f"title matches {kw_hits} target role keyword(s)")

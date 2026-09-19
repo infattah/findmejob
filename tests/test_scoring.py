@@ -50,3 +50,25 @@ class TestScoring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestTargetTitleBoundaries(unittest.TestCase):
+    def setUp(self):
+        self.profile = parse_master_cv(SAMPLE.read_text())
+
+    def test_inserted_specialism_matches_full_target(self):
+        job = JobPosting(title="Digital & Performance Marketing Manager", company="Acme",
+                         description="Lead Google Ads and paid social performance across UAE ecommerce.")
+        result = score_fit(self.profile, job, ["digital marketing"])
+        self.assertTrue(any("title matches" in r for r in result.reasons))
+
+    def test_connectors_do_not_break_full_target(self):
+        job = JobPosting(title="Growth and Performance Marketing Lead", company="Acme",
+                         description="Lead growth and paid media.")
+        result = score_fit(self.profile, job, ["growth marketing"])
+        self.assertTrue(any("title matches" in r for r in result.reasons))
+
+    def test_one_generic_target_token_still_does_not_match(self):
+        job = JobPosting(title="Content Automation Strategist", company="Ounass",
+                         description="Own editorial content workflows and publishing automation.")
+        result = score_fit(self.profile, job, ["marketing automation"])
+        self.assertFalse(any("title matches" in r for r in result.reasons))
