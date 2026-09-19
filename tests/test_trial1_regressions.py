@@ -142,3 +142,41 @@ class TrialOneRegressions(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TrialThreeRecommendationQuality(unittest.TestCase):
+    def _cfg(self, root):
+        (root / "cv.md").write_text(
+            "# A Person\n## Summary\nGrowth marketer with 7+ years in paid acquisition and automation\n"
+            "## Skills\n- Digital marketing\n- Marketing automation\n- Paid media\n", encoding="utf-8")
+        return Config(root=root, raw={
+            "profile": {"master_cv": "cv.md"},
+            "search": {"role_keywords": ["growth marketing", "marketing automation", "digital marketing"]},
+            "policy": {"min_fit_score": 45},
+            "paths": {"db": "jobs.db", "output": "out", "cache": "cache"},
+        })
+
+    def test_title_only_digital_role_is_review_not_actionable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); cfg = self._cfg(root); tracker = Tracker(root / "jobs.db")
+            job = JobPosting(title="Assistant Manager - Digital Marketing",
+                             company="Dubai Holding", location="Dubai",
+                             description="Digital marketing opportunity in Dubai.")
+            tracker.upsert_job(job, verdict="pass"); tracker.conn.commit()
+            result = run_triage(cfg, tracker)
+            row = tracker.list_jobs()[0]
+            self.assertEqual(result["shortlisted"], 0)
+            self.assertEqual(row["status"], "needs_input")
+            self.assertIn("insufficient job evidence", row["notes"])
+            tracker.close()
+
+    def test_adjacent_content_operations_role_is_not_shortlisted(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); cfg = self._cfg(root); tracker = Tracker(root / "jobs.db")
+            job = JobPosting(title="Content Automation Strategist", company="Ounass", location="Dubai",
+                             description=("Own bilingual luxury editorial operations and Contentful. " * 8))
+            tracker.upsert_job(job, verdict="pass"); tracker.conn.commit()
+            result = run_triage(cfg, tracker)
+            self.assertEqual(result["shortlisted"], 0)
+            self.assertLess(tracker.list_jobs()[0]["score"], 45)
+            tracker.close()
