@@ -110,8 +110,14 @@ def run_triage(cfg: Config, tracker: Tracker) -> dict[str, Any]:
         _write_fit_report(cfg, tracker, profile, job, fit, evidence)
         verdict = row["policy_verdict"] or "pass"
         hard_reasons = [f"hard requirement not proven: {i.requirement}" for i in evidence.items if i.hard and i.status != "strong"]
-        if verdict == "review" or hard_reasons:
+        # A title-only or near-empty listing cannot support an actionable
+        # recommendation, even when its keywords score well. Keep it visible
+        # for review until the official source exposes substantive role facts.
+        evidence_poor = len(job.description.split()) < 30
+        if verdict == "review" or hard_reasons or evidence_poor:
             policy_reasons = check_job(job, cfg.policy).reasons if verdict == "review" else []
+            if evidence_poor:
+                policy_reasons.append("insufficient job evidence; official listing lacks substantive role details")
             tracker.set_status(job.id, "needs_input", "; ".join(policy_reasons + hard_reasons))
             review_reasons = policy_reasons + hard_reasons
             tracker.add_pending(
