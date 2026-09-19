@@ -17,7 +17,12 @@ _STOP = {"the", "and", "for", "with", "you", "your", "our", "are", "will", "that
 
 
 def _tokens(text: str) -> set[str]:
-    return {t for t in _TOKEN.findall(text.lower()) if t not in _STOP}
+    tokens = {t for t in _TOKEN.findall(text.lower()) if t not in _STOP}
+    # Small lexical normalization keeps ordinary CV wording aligned without
+    # turning unrelated domains into matches.
+    if "marketer" in tokens or "marketers" in tokens:
+        tokens.add("marketing")
+    return tokens
 
 
 def extract_requirements(description: str, max_items: int = 12) -> list[str]:
@@ -99,13 +104,80 @@ def _max_years(text: str) -> int | None:
     return max(values) if values else None
 
 
+def _profile_evidence_fragments(profile: Profile) -> list[str]:
+    """Return CV facts in bounded fragments so years keep their domain context."""
+    fragments = [profile.headline, profile.summary]
+    fragments.extend(profile.skills)
+    for exp in profile.experiences:
+        context = f"{exp.role} {exp.company}"
+        fragments.append(context)
+        fragments.extend(f"{context}: {bullet}" for bullet in exp.bullets)
+    # Free-form CVs may not parse into structured fields. Keep line boundaries so
+    # a years claim in one section cannot qualify an unrelated domain elsewhere.
+    fragments.extend(line.strip() for line in profile.raw_text.splitlines())
+    return [fragment for fragment in fragments if fragment]
+
+
+def _year_domain_tokens(requirement: str) -> set[str]:
+    # Requirements are sometimes extracted as long sentences containing duties
+    # plus one years clause. Bind the number to that clause and, for generic
+    # "growth or performance marketing" wording, retain the domain alternatives.
+    clauses = re.split(r"[.;]|\b(?:and|but)\b", requirement, flags=re.I)
+    clause = next((part for part in clauses if _YEARS.search(part)), requirement)
+    tokens = _tokens(_YEARS.sub("", clause))
+    return tokens - {"requires", "require", "minimum"}
+
+
+def _grounded_domain(requirement: str, fragment: str) -> bool:
+    domain_terms = _year_domain_tokens(requirement)
+    fragment_tokens = _tokens(fragment)
+    overlap = len(domain_terms & fragment_tokens)
+    if not domain_terms:
+        return False
+    # "X or Y" names alternatives. One complete alternative plus the shared
+    # domain word is sufficient (for example "growth marketing").
+    if re.search(r"\bor\b", requirement, re.I) and "marketing" in domain_terms:
+        alternatives = domain_terms - {"marketing"}
+        return "marketing" in fragment_tokens and bool(alternatives & fragment_tokens)
+    ratio = overlap / len(domain_terms)
+    # A single distinctive term can ground a one-term domain (for example SEO).
+    # Longer domain phrases need at least two matching terms and half the phrase.
+    return overlap >= 1 if len(domain_terms) == 1 else overlap >= 2 and ratio >= .5
+
+
+def _domain_overlap(requirement: str, fragment: str) -> tuple[int, float]:
+    req_tokens = _year_domain_tokens(requirement)
+    if not req_tokens:
+        return 0, 0.0
+    overlap = len(req_tokens & _tokens(fragment))
+    return overlap, overlap / len(req_tokens)
+
+
 def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
     hard = is_hard_requirement(requirement)
     req_years = _max_years(requirement)
     if req_years is not None:
-        cv_years = _max_years(profile.all_facts_text())
-        if cv_years is not None and cv_years >= req_years:
-            return RequirementMatch(requirement, "strong", [f"CV explicitly states {cv_years}+ years"], hard)
+        fragments = _profile_evidence_fragments(profile)
+        domain_terms = _year_domain_tokens(requirement)
+        numeric = [(years, fragment) for fragment in fragments
+                   if (years := _max_years(fragment)) is not None and years >= req_years]
+        if not domain_terms and numeric:
+            years, fragment = max(numeric, key=lambda item: item[0])
+            return RequirementMatch(requirement, "strong",
+                                    [f"CV explicitly states {years}+ years: {fragment[:140]}"], hard)
+        grounded_numeric = [(years, fragment) for years, fragment in numeric
+                            if _grounded_domain(requirement, fragment)]
+        if grounded_numeric:
+            years, fragment = max(grounded_numeric, key=lambda item: item[0])
+            return RequirementMatch(requirement, "strong",
+                                    [f"domain-matched experience: {fragment[:160]}"], hard)
+        domain_evidence = [fragment for fragment in fragments
+                           if _grounded_domain(requirement, fragment)]
+        if domain_evidence:
+            # Preserve recall when the CV proves the domain but does not attach a
+            # trustworthy duration to it. Hard requirements still go to review.
+            return RequirementMatch(requirement, "partial",
+                                    [f"domain evidence without grounded duration: {domain_evidence[0][:140]}"], hard)
         return RequirementMatch(requirement, "missing", [], hard)
     req_tokens = _tokens(requirement)
     if not req_tokens:
