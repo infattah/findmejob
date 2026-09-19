@@ -11,7 +11,7 @@ from findmejob.models import JobPosting
 from findmejob.packs import build_pack
 from findmejob.pipeline import run_search
 from findmejob.policy import check_job
-from findmejob.setup_wizard import build_config_from_answers, doctor
+from findmejob.setup_wizard import build_config_from_answers, doctor, _ask_nonnegative_int
 from findmejob.tracker import Tracker
 
 ROOT = Path(__file__).parent.parent
@@ -54,6 +54,14 @@ class TestWizardConfig(unittest.TestCase):
         self.assertNotIn("AED", json.dumps(cfg))
 
 
+class TestWizardInput(unittest.TestCase):
+    def test_salary_reprompts_after_invalid_input(self):
+        with patch("builtins.input", side_effect=["sixty thousand", "-1", "60,000"]), \
+             patch("builtins.print") as out:
+            self.assertEqual(_ask_nonnegative_int("Salary"), 60000)
+            self.assertEqual(out.call_count, 2)
+
+
 class TestDoctor(unittest.TestCase):
     def test_empty_project_fails_usefully(self):
         root = Path(tempfile.mkdtemp())
@@ -87,11 +95,21 @@ class TestSalaryAwarePolicy(unittest.TestCase):
         r = check_job(self.job("AED 20,000 - 25,000 per month"), self.POLICY)
         self.assertEqual(r.verdict, "pass")
 
-    def test_missing_rate_falls_back_with_honest_reason(self):
+    def test_missing_rate_requires_review_even_above_raw_floor(self):
         policy = {"salary_floor": 50000, "currency": "USD"}
-        r = check_job(self.job("EUR 2,000 per month"), policy)
-        self.assertEqual(r.verdict, "review")
-        self.assertTrue(any("heuristic" in x or "rate" in x for x in r.reasons))
+        for salary in ("EUR 60,000/year", "INR 100,000/month", "AED 200,000/year"):
+            with self.subTest(salary=salary):
+                r = check_job(self.job(salary), policy)
+                self.assertEqual(r.verdict, "review")
+                self.assertTrue(any("cannot verify" in x for x in r.reasons))
+
+    def test_ambiguous_currency_and_unknown_period_require_review(self):
+        policy = {"salary_floor": 50000, "currency": "USD"}
+        for salary in ("$100,000/year", "USD 100,000"):
+            with self.subTest(salary=salary):
+                r = check_job(self.job(salary), policy)
+                self.assertEqual(r.verdict, "review")
+                self.assertTrue(any("cannot verify" in x for x in r.reasons))
 
 
 class TestNewAdapters(unittest.TestCase):

@@ -21,12 +21,12 @@ Job hunting is repetitive: search ten sites, re-read your CV, rewrite the same e
 
 ## Quickstart
 
-Requires Python 3.10+. Core pipeline has zero required dependencies.
+Requires Python 3.10+. Core pipeline has zero required Python dependencies; PDF fonts are bundled.
 
 ```bash
 git clone https://github.com/infattah/findmejob.git
 cd findmejob
-pip install -e .            # or just run: python -m findmejob ...
+python -m pip install .      # regular, non-editable install
 
 findmejob setup                      # guided: plain questions -> config.json
 findmejob ingest --cv path/to/master_cv.md
@@ -84,7 +84,7 @@ docs/          architecture, runtimes, configuration, safety, per-agent usage gu
 sample_data/   fictional master CV and sample jobs for the offline demo
 src/findmejob/agent/     the persistent main agent + focused workers
 src/findmejob/sources/   job board adapters (Greenhouse, Lever, Ashby, SmartRecruiters, Workable, RSS, Remotive, JSON)
-src/findmejob/render/    designed PDF CV renderer (stdlib-only, no dependencies)
+src/findmejob/render/    designed Unicode PDF CV renderer (stdlib-only; bundled open fonts)
 src/findmejob/browser/   browser apply flow + safety guards (Playwright, optional)
 src/findmejob/ui/        local web UI with chat (stdlib http.server)
 tests/         offline unit tests (stdlib unittest, no network)

@@ -80,6 +80,20 @@ def _ask(prompt: str, default: str = "") -> str:
     return ans or default
 
 
+
+def _ask_nonnegative_int(prompt: str, default: int = 0) -> int:
+    """Ask until a whole, non-negative number is entered."""
+    while True:
+        raw = _ask(prompt, str(default))
+        try:
+            value = int(raw.replace(",", "").strip())
+            if value < 0:
+                raise ValueError
+            return value
+        except ValueError:
+            print("  Enter a whole number of 0 or more, for example 60000.")
+
+
 def run_wizard(root: Path) -> Path:
     print("findmejob setup - answer a few questions; you can edit config.json later.")
     scaffold(root)
@@ -89,7 +103,7 @@ def run_wizard(root: Path) -> Path:
     roles = _ask("Target roles, comma separated (e.g. marketing manager, growth lead)")
     locations = _ask("Locations you accept, comma separated (e.g. Dubai, London)")
     remote = _ask("Include remote roles? (y/n)", "y").lower().startswith("y")
-    salary = _ask("Minimum yearly salary in your currency (0 = no floor)", "0")
+    salary = _ask_nonnegative_int("Minimum yearly salary in your currency (0 = no floor)")
     currency = _ask("Your salary currency (e.g. USD, EUR, AED)", "USD")
     exclusions = _ask("Anything to exclude, comma separated (sectors, words; optional)")
     boards_raw = _ask("Companies' career boards to watch, comma separated\n"
@@ -107,7 +121,7 @@ def run_wizard(root: Path) -> Path:
         "full_name": full_name, "email": email, "phone": phone,
         "roles": [r.strip() for r in roles.split(",")],
         "locations": [l.strip() for l in locations.split(",")],
-        "remote_ok": remote, "salary_floor": int(salary or 0),
+        "remote_ok": remote, "salary_floor": salary,
         "currency": currency, "exclusions": [x.strip() for x in exclusions.split(",")],
         "boards": boards,
     }
@@ -175,5 +189,5 @@ def doctor(root: Path) -> list[tuple[str, str]]:
     floor = int(cfg.policy.get("salary_floor") or 0)
     if floor and not cfg.policy.get("exchange_rates"):
         checks.append(("warn", "salary floor set without exchange_rates - salaries in "
-                               "other currencies can only be compared heuristically"))
+                               "other currencies require review until rates are configured"))
     return checks

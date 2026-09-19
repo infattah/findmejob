@@ -5,8 +5,8 @@ A job is "pass", "review" (a human should look), or "block".
 
 Salary floors are compared in the policy's own currency. With
 policy.exchange_rates configured ({currency: units of base per 1 unit}),
-any stated salary is annualized and converted strictly; without rates the
-legacy magnitude heuristic is used and the reason says so.
+any stated salary is annualized and converted strictly. Unknown currency,
+unknown pay period, or a missing exchange rate always requires review.
 """
 from __future__ import annotations
 
@@ -83,12 +83,7 @@ def _salary_reasons(job: JobPosting, policy: dict[str, Any], floor: int) -> list
         if shown < floor:
             return [f"salary {shown} {base or salary.currency}/yr below floor {floor}"]
         return []
-    # strict comparison impossible: fall back to the legacy heuristic and
-    # say so, so a configured floor still filters obvious mismatches
-    low = parse_salary_floor(job.salary_text or "")
-    if low is not None and low < floor:
-        return [f"salary ~{low}/yr below floor {floor} (heuristic; "
-                + (norm.notes[-1] if norm.notes else "not normalized") + ")"]
-    if low is None:
-        return ["salary not stated; cannot verify floor"]
-    return []
+    # Comparison is load-bearing: raw magnitudes across currencies or pay
+    # periods are not comparable. Never let an unnormalizable salary pass.
+    detail = norm.notes[-1] if norm.notes else "salary could not be normalized"
+    return [f"salary requires review; cannot verify floor {floor} {base}: {detail}"]

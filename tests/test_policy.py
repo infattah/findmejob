@@ -5,6 +5,7 @@ from findmejob.policy import check_job, parse_salary_floor
 
 POLICY = {
     "salary_floor": 60000,
+    "currency": "USD",
     "locations_include": ["remote", "dubai"],
     "locations_exclude": [],
     "sector_exclusions": ["sector-you-avoid"],
@@ -15,7 +16,7 @@ POLICY = {
 class TestPolicy(unittest.TestCase):
     def job(self, **kw):
         base = dict(title="Growth Marketing Manager", company="Acme", location="Dubai",
-                    salary_text="$80,000 per year")
+                    salary_text="USD 80,000 per year")
         base.update(kw)
         return JobPosting(**base)
 
