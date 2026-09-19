@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   created REAL NOT NULL,
   updated REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS company_verifications (
+  job_id TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  updated REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts REAL NOT NULL,
@@ -171,8 +176,34 @@ class Tracker:
                         "location": job.location, "url": job.url, "source": job.source,
                         "status": r["status"], "score": r["score"],
                         "policy_verdict": r["policy_verdict"], "notes": r["notes"],
-                        "updated": r["updated"]})
+                        "updated": r["updated"],
+                        "verification": self.verification_summary(r["id"])})
         return out
+
+    # evidence-backed company legitimacy and application routes
+    def set_verification(self, job_id: str, verification) -> None:
+        errors = verification.validate()
+        if errors:
+            raise ValueError("; ".join(errors))
+        self.conn.execute(
+            "INSERT INTO company_verifications (job_id,data,updated) VALUES (?,?,?) "
+            "ON CONFLICT(job_id) DO UPDATE SET data=excluded.data, updated=excluded.updated",
+            (job_id, json.dumps(verification.to_dict()), time.time()))
+        self.add_event(job_id, "company_verification", verification.status)
+        self.conn.commit()
+
+    def get_verification(self, job_id: str):
+        from .verification import CompanyVerification
+        row = self.conn.execute(
+            "SELECT data FROM company_verifications WHERE job_id=?", (job_id,)).fetchone()
+        return CompanyVerification.from_dict(json.loads(row["data"])) if row else None
+
+    def verification_summary(self, job_id: str) -> dict[str, Any]:
+        result = self.get_verification(job_id)
+        if not result:
+            return {"status": "unknown", "route": ""}
+        route = result.best_route()
+        return {"status": result.status, "route": route.value if route else ""}
 
     # events
     def add_event(self, job_id: str | None, kind: str, detail: str = "") -> None:
