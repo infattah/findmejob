@@ -170,3 +170,200 @@ class TestForexProviderPhrasing(unittest.TestCase):
     def test_fx_awareness_without_business_context_is_neutral(self):
         self.assertEqual(self.check(
             "The role requires awareness of FX risk in media buying."), "pass")
+
+class TestTrialFourSectorRegressions(unittest.TestCase):
+    def check(self, title, company, description):
+        return check_job(JobPosting(title=title, company=company, description=description),
+                         {"sector_exclusions": ["forex trading", "hotel", "hospitality"]})
+
+    def test_astra_remittance_role_blocks(self):
+        result = self.check(
+            "Growth Manager, Remittance", "Astra Tech",
+            "Build the remittance growth engine and improve FX transfer transactions.")
+        self.assertEqual(result.verdict, "block")
+
+    def test_remittance_provider_business_blocks(self):
+        result = self.check(
+            "Growth Manager", "Transfer Co",
+            "We are a digital provider of remittances and payment transactions.")
+        self.assertEqual(result.verdict, "block")
+
+    def test_neutral_payment_mentions_do_not_block(self):
+        result = self.check(
+            "Ecommerce Marketing Manager", "Retail Co",
+            "Improve checkout conversion and measure customer payment transactions.")
+        self.assertEqual(result.verdict, "pass")
+
+    def test_generic_payment_role_title_is_neutral(self):
+        result = self.check(
+            "Payments Marketing Manager", "Retail Software Co",
+            "Market checkout software to online merchants and analyze card payment conversion.")
+        self.assertEqual(result.verdict, "pass")
+
+    def test_payment_transaction_provider_business_blocks(self):
+        result = self.check(
+            "Growth Manager", "Transfer Network",
+            "Our network provides regulated payment transactions for international transfers.")
+        self.assertEqual(result.verdict, "block")
+
+    def test_disability_accommodation_request_does_not_imply_hotel(self):
+        result = self.check(
+            "Principal Solution Engineer - Marketing Cloud", "Salesforce",
+            "Salesforce is a cloud software company. Applicants needing an accommodation request because of a disability may contact recruiting.")
+        self.assertEqual(result.verdict, "pass")
+
+    def test_direct_hotel_identity_still_wins(self):
+        result = self.check(
+            "Software Marketing Manager", "Grand Hotel",
+            "We operate a hotel and use cloud software. Accommodation requests due to disability are welcome.")
+        self.assertEqual(result.verdict, "block")
+
+class TestTrialFourIndependentReviewPaymentBoundaries(unittest.TestCase):
+    policy = {"sector_exclusions": ["forex trading"]}
+
+    def verdict(self, title, company, description):
+        return check_job(JobPosting(title=title, company=company, description=description), self.policy).verdict
+
+    def test_payment_transaction_analytics_provider_wording_is_neutral(self):
+        self.assertEqual(self.verdict(
+            "Analytics Manager", "Data Co",
+            "We provide payment transaction analytics to online retailers."), "pass")
+
+    def test_payment_transaction_reporting_and_measurement_are_neutral(self):
+        for noun in ("reporting", "measurement", "metrics", "insights"):
+            with self.subTest(noun=noun):
+                self.assertEqual(self.verdict(
+                    "Analytics Manager", "Data Co",
+                    f"We provide payment transaction {noun} to online retailers."), "pass")
+
+    def test_payment_transactions_product_title_at_retailer_is_neutral(self):
+        self.assertEqual(self.verdict(
+            "Payment Transactions Product Manager", "Retail Co",
+            "Own checkout product workflows for online retail."), "pass")
+
+    def test_payment_transactions_marketing_title_at_retailer_is_neutral(self):
+        self.assertEqual(self.verdict(
+            "Payment Transaction Marketing Manager", "Retail Co",
+            "Market our ecommerce checkout experience."), "pass")
+
+    def test_actual_payment_transaction_provider_still_blocks(self):
+        self.assertEqual(self.verdict(
+            "Product Manager", "Transfer Co",
+            "We facilitate and process regulated payment transactions for merchants."), "block")
+
+    def test_remittance_and_fx_providers_still_block(self):
+        for description in (
+            "We offer remittance services to consumers.",
+            "Our platform facilitates foreign exchange for international businesses.",
+        ):
+            with self.subTest(description=description):
+                self.assertEqual(self.verdict("Growth Manager", "Transfer Co", description), "block")
+
+class TestTrialFourIndependentReviewPaymentBoundaries(unittest.TestCase):
+    policy = {"sector_exclusions": ["forex trading"]}
+
+    def verdict(self, title, company, description):
+        return check_job(JobPosting(title=title, company=company, description=description), self.policy).verdict
+
+    def test_payment_transaction_analytics_provider_wording_is_neutral(self):
+        self.assertEqual(self.verdict("Analytics Manager", "Data Co", "We provide payment transaction analytics to online retailers."), "pass")
+
+    def test_payment_transaction_reporting_and_measurement_are_neutral(self):
+        for noun in ("reporting", "measurement", "metrics", "insights"):
+            with self.subTest(noun=noun):
+                self.assertEqual(self.verdict("Analytics Manager", "Data Co", f"We provide payment transaction {noun} to online retailers."), "pass")
+
+    def test_payment_transactions_product_title_at_retailer_is_neutral(self):
+        self.assertEqual(self.verdict("Payment Transactions Product Manager", "Retail Co", "Own checkout product workflows for online retail."), "pass")
+
+    def test_payment_transactions_marketing_title_at_retailer_is_neutral(self):
+        self.assertEqual(self.verdict("Payment Transaction Marketing Manager", "Retail Co", "Market our ecommerce checkout experience."), "pass")
+
+    def test_actual_payment_transaction_provider_still_blocks(self):
+        self.assertEqual(self.verdict("Product Manager", "Transfer Co", "We facilitate and process regulated payment transactions for merchants."), "block")
+
+    def test_remittance_and_fx_providers_still_block(self):
+        for description in ("We offer remittance services to consumers.", "Our platform facilitates foreign exchange for international businesses."):
+            with self.subTest(description=description):
+                self.assertEqual(self.verdict("Growth Manager", "Transfer Co", description), "block")
+
+
+class TestFinalReviewPaymentAndHotelBoundaries(unittest.TestCase):
+    forex = {"sector_exclusions": ["forex trading"]}
+
+    def verdict(self, description, title="Role", company="Data Co", policy=None):
+        job = JobPosting(title=title, company=company, description=description)
+        return check_job(job, policy or self.forex).verdict
+
+    def test_canonical_payment_processors_block(self):
+        cases = (
+            "We process payment transactions for merchants across the region.",
+            "We are a payment processing company serving online merchants.",
+            "Our platform processes regulated payment transactions.",
+        )
+        for description in cases:
+            with self.subTest(description=description):
+                self.assertEqual(self.verdict(description, company="Transfer Co"), "block")
+
+    def test_neutral_transaction_analysis_both_word_orders(self):
+        cases = (
+            "We provide analytics for payment transactions to online retailers.",
+            "We publish measurement of payment transactions for merchants.",
+            "We deliver insights into payment transactions for retail teams.",
+            "We provide reporting on payment transactions to online retailers.",
+            "We measure customer payment transactions to improve checkout conversion.",
+        )
+        for description in cases:
+            with self.subTest(description=description):
+                self.assertEqual(self.verdict(description), "pass")
+
+    def test_processing_mention_as_customer_activity_is_neutral(self):
+        self.assertEqual(self.verdict(
+            "Our analytics client processes payment transactions for its own customers."), "pass")
+
+    def test_plural_hotel_business_blocks(self):
+        policy = {"sector_exclusions": ["hotel", "hospitality"]}
+        self.assertEqual(self.verdict(
+            "We operate hotels and resorts across the Gulf.", company="Stay Group", policy=policy), "block")
+
+    def test_software_for_plural_hotels_stays_neutral(self):
+        policy = {"sector_exclusions": ["hotel", "hospitality"]}
+        self.assertEqual(self.verdict(
+            "Our SaaS platform serves hotels and hospitality operators.",
+            company="Cloud Software Co", policy=policy), "pass")
+
+
+class TestHotelTitleCustomerVerticalBoundary(unittest.TestCase):
+    policy = {"sector_exclusions": ["hotel", "hospitality"]}
+
+    def test_hotel_technology_product_title_at_saas_provider_passes(self):
+        job = JobPosting(
+            title="Hotel Technology Product Manager",
+            company="CloudBeds Tech",
+            description="We are a SaaS platform serving hotels and hospitality operators.",
+        )
+        self.assertEqual(check_job(job, self.policy).verdict, "pass")
+
+    def test_hospitality_saas_title_at_explicit_provider_passes(self):
+        job = JobPosting(
+            title="Hospitality SaaS Product Lead",
+            company="GuestCloud Tech",
+            description="Our technology platform is used by hotels and hospitality operators.",
+        )
+        self.assertEqual(check_job(job, self.policy).verdict, "pass")
+
+    def test_plain_hotel_role_title_still_blocks(self):
+        job = JobPosting(
+            title="Hotel General Manager",
+            company="CloudBeds Tech",
+            description="We are a SaaS platform serving hotels and hospitality operators.",
+        )
+        self.assertEqual(check_job(job, self.policy).verdict, "block")
+
+    def test_direct_hotel_company_identity_always_blocks(self):
+        job = JobPosting(
+            title="Hotel Technology Product Manager",
+            company="Grand Hotel",
+            description="We use a SaaS platform serving hotels and hospitality operators.",
+        )
+        self.assertEqual(check_job(job, self.policy).verdict, "block")

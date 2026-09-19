@@ -37,3 +37,30 @@ class TestLiveness(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestTrialFourLivenessRegressions(unittest.TestCase):
+    def test_explicit_vacancy_expired_wins_over_apply_cta(self):
+        body = ("<html><button>Apply now</button><p>This vacancy has expired.</p>" + "x" * 1000)
+        status, detail = check_listing("https://example/jobs/1", lambda u, t: (200, body))
+        self.assertEqual(status, "expired")
+        self.assertIn("vacancy has expired", detail)
+
+    def test_applications_closed_wins_over_application_form(self):
+        body = ("<html><div>Application form</div><p>Applications closed.</p>" + "x" * 1000)
+        self.assertEqual(check_listing("https://example/jobs/2", lambda u, t: (200, body))[0], "expired")
+
+
+class TestFinalReviewExpiryPrecedence(unittest.TestCase):
+    def test_role_job_position_closed_variants_beat_apply(self):
+        variants = (
+            "Applications for this role have closed",
+            "Applications for this job have closed",
+            "Applications for this position have closed",
+            "Applications for the role have closed",
+            "Applications for the job have closed",
+            "Applications for the position have closed",
+        )
+        for message in variants:
+            body = f"<button>Apply now</button><p>{message}</p>" + "x" * 1000
+            with self.subTest(message=message):
+                self.assertEqual(check_listing("https://example/jobs/3", lambda u, t: (200, body))[0], "expired")

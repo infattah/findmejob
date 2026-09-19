@@ -71,3 +71,112 @@ class TestEvaluation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestTrialFourEvidenceRegressions(unittest.TestCase):
+    def test_generic_seven_years_plus_matching_paid_domain_satisfies_range(self):
+        p = Profile(summary="Marketing professional with 7+ years of experience.",
+                    skills=["Paid media", "Meta Ads", "Google Ads", "A/B testing"])
+        job = JobPosting(title="Performance Marketing Specialist", company="instashop",
+                         description="Qualifications\n- 3-5 years of performance marketing experience")
+        item = evaluate_requirements(p, job).items[0]
+        self.assertEqual(item.status, "strong")
+
+    def test_domain_bound_unrelated_years_do_not_transfer(self):
+        p = Profile(summary="7+ years in consumer retail.", skills=["Paid media", "Google Ads"])
+        job = JobPosting(title="Lead", company="Acme",
+                         description="Qualifications\n- 5+ years of B2B SaaS demand generation experience")
+        self.assertNotEqual(evaluate_requirements(p, job).items[0].status, "strong")
+
+    def test_company_history_duration_is_not_candidate_requirement(self):
+        text = ("About us\nDelivery Hero has been delivering for 18 years across global markets.\n"
+                "Requirements\n- 4+ years of CRM marketing experience")
+        reqs = extract_requirements(text)
+        self.assertNotIn("Delivery Hero has been delivering for 18 years across global markets.", reqs)
+        self.assertIn("4+ years of CRM marketing experience", reqs)
+
+    def test_we_have_operated_for_years_is_not_candidate_requirement(self):
+        self.assertEqual(extract_requirements(
+            "About us. We have operated for 12 years serving local merchants."), [])
+
+class TestIndependentReviewCompanyHistoryBoundaries(unittest.TestCase):
+    def test_natural_company_history_durations_are_not_requirements(self):
+        histories = (
+            "For 18 years, Delivery Hero has been delivering food worldwide.",
+            "Founded 18 years ago, Delivery Hero serves global markets.",
+            "About us. Our company has 18 years of experience serving merchants.",
+        )
+        for text in histories:
+            with self.subTest(text=text):
+                self.assertEqual(extract_requirements(text), [])
+
+    def test_real_candidate_year_requirements_remain(self):
+        descriptions = (
+            "Requirements\n- 5+ years of performance marketing experience",
+            "What you'll need\n- At least 3 years of experience in CRM",
+            "The candidate must have 4 years of paid media experience.",
+        )
+        for text in descriptions:
+            with self.subTest(text=text):
+                self.assertTrue(extract_requirements(text))
+
+class TestIndependentReviewCompanyHistoryBoundaries(unittest.TestCase):
+    def test_natural_company_history_durations_are_not_requirements(self):
+        histories = ("For 18 years, Delivery Hero has been delivering food worldwide.", "Founded 18 years ago, Delivery Hero serves global markets.", "About us. Our company has 18 years of experience serving merchants.")
+        for text in histories:
+            with self.subTest(text=text):
+                self.assertEqual(extract_requirements(text), [])
+
+    def test_real_candidate_year_requirements_remain(self):
+        descriptions = ("Requirements\n- 5+ years of performance marketing experience", "What you'll need\n- At least 3 years of experience in CRM", "The candidate must have 4 years of paid media experience.")
+        for text in descriptions:
+            with self.subTest(text=text):
+                self.assertTrue(extract_requirements(text))
+
+
+class TestFinalReviewCandidateHistoryBoundary(unittest.TestCase):
+    def test_natural_candidate_requirements_survive_history_filter(self):
+        requirements = (
+            "The ideal candidate has 4+ years of experience in growth marketing.",
+            "The successful candidate has 5+ years of experience in paid media.",
+            "The right person has 6+ years of experience in digital marketing.",
+            "You have 4+ years of experience in performance marketing.",
+            "Candidate must have 5 years of experience in growth marketing.",
+        )
+        for requirement in requirements:
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, extract_requirements(requirement))
+
+    def test_explicit_company_subjects_remain_history(self):
+        histories = (
+            "Our business has 14 years of experience serving merchants.",
+            "The company has operated for over 20 years.",
+            "Delivery Hero has 18 years of experience serving merchants.",
+        )
+        for history in histories:
+            with self.subTest(history=history):
+                self.assertEqual(extract_requirements(history), [])
+
+
+class TestSingleTokenCompanyHistoryBoundary(unittest.TestCase):
+    def test_single_token_company_names_are_not_candidate_requirements(self):
+        histories = (
+            "Acme has 18 years of experience serving merchants.",
+            "Google has operated for over 20 years.",
+            "Stripe has served merchants for 15 years.",
+            "Nike has delivered products for more than 30 years.",
+        )
+        for history in histories:
+            with self.subTest(history=history):
+                self.assertEqual(extract_requirements(history), [])
+
+    def test_human_and_candidate_subjects_are_not_filtered(self):
+        requirements = (
+            "Candidate has 5 years of experience in growth marketing.",
+            "The ideal candidate has 4+ years of experience in growth marketing.",
+            "The right person has 6+ years of experience in digital marketing.",
+            "You have 4+ years of experience in performance marketing.",
+            "Applicant has 3 years of experience in CRM.",
+        )
+        for requirement in requirements:
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, extract_requirements(requirement))

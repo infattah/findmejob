@@ -24,7 +24,12 @@ EXPIRY_MARKERS = [
     "no longer available", "no longer accepting", "job has expired",
     "this job is no longer", "position has been filled", "job not found",
     "page not found", "listing has expired", "job is closed",
-    "applications for this position have closed", "job has been removed",
+    "applications for this position have closed", "applications for this role have closed",
+    "applications for this job have closed", "applications for the position have closed",
+    "applications for the role have closed", "applications for the job have closed",
+    "applications have closed",
+    "applications closed", "vacancy has expired", "vacancy expired",
+    "job has been removed",
 ]
 
 Opener = Callable[[str, int], tuple[int, str]]

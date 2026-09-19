@@ -65,3 +65,15 @@ class TestNormalize(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestTrialFourAedSalary(unittest.TestCase):
+    def test_compact_repeated_aed_monthly_range(self):
+        salary = parse_salary("AED19,000-AED20,000 per month")
+        self.assertIsNotNone(salary)
+        self.assertEqual((salary.currency, salary.period), ("AED", "month"))
+        self.assertEqual((salary.min, salary.max), (19000, 20000))
+
+    def test_spaced_single_aed_monthly_range(self):
+        salary = parse_salary("AED 19,000-20,000/month")
+        self.assertEqual((salary.currency, salary.period), ("AED", "month"))
+        self.assertEqual((salary.annual_min(), salary.annual_max()), (228000, 240000))
