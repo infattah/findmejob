@@ -383,11 +383,11 @@ def _language_phrases(text: str) -> list[tuple[str, str, set[str], tuple[int, in
                 continue
             if any(span[0] < end and start < span[1] for start, end in occupied):
                 continue
-            mods = set(re.findall(
+            mods = {value.lower() for value in re.findall(
                 r"(?i)\b(written|spoken)\b",
                 (match.groupdict().get("mods1") or "") + " "
                 + (match.groupdict().get("mods2") or ""),
-            ))
+            )}
             found.append((
                 match.group("language").lower(),
                 match.group("level").lower(),
@@ -445,6 +445,37 @@ def _profession_anchor(tokens: set[str]) -> str | None:
     return None
 
 
+def _years_have_unconsumed_hard_text(requirement: str) -> bool:
+    """Fail closed when a years atom still contains another hard constraint.
+
+    Known conjunctions are decomposed before matching. If a compound reaches
+    the years matcher, strip only years boilerplate and test the remainder for
+    independent hard markers. This is connector-agnostic by design: new prose
+    or punctuation cannot make the years evidence hide fluent/native language,
+    B2B, SaaS, or another explicit threshold.
+    """
+    residual = _YEARS.sub(" ", requirement)
+    residual = re.sub(
+        r"(?i)\b(?:minimum|at least|requires?|required|must|experience|of|in)\b",
+        " ",
+        residual,
+    )
+    if re.search(r"(?i)\b(?:fluent|native|bilingual|proficien(?:t|cy)|\d+\s*(?:\+|plus)?\s*years?)\b", residual):
+        return True
+    # B2B/SaaS immediately bound after "years of/in" are legitimate domain
+    # modifiers. They are residual only before the years phrase, or after an
+    # already established domain phrase such as "growth marketing".
+    b2b = re.search(r"(?i)\b(?:b2b|saas)\b", requirement)
+    years = _YEARS.search(requirement)
+    if b2b and years:
+        if b2b.start() < years.start():
+            return True
+        between = requirement[years.end():b2b.start()]
+        if _tokens(between) - {"of", "in"}:
+            return True
+    return False
+
+
 def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
     hard = is_hard_requirement(requirement)
     language = _match_language(requirement, profile, hard)
@@ -452,6 +483,8 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
         return language
     req_years = _required_years(requirement)
     if req_years is not None:
+        if _years_have_unconsumed_hard_text(requirement):
+            return RequirementMatch(requirement, "missing", [], hard)
         fragments = _profile_evidence_fragments(profile)
         domain_terms = _year_domain_tokens(requirement)
         numeric = [(years, fragment) for fragment in fragments

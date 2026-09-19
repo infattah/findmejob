@@ -133,3 +133,51 @@ class MultiLanguageBindingRegressions(unittest.TestCase):
         evidence = "Arabic native; English fluent professional proficiency."
         self.assertEqual("strong", self.status(evidence, "Written fluent English"))
         self.assertEqual("strong", self.status(evidence, "Spoken fluent English"))
+
+class ConnectorAgnosticResidualRegressions(unittest.TestCase):
+    joins = ("with", "alongside", "together with", "combined with", "-", ":", "—")
+
+    def report(self, summary, requirement):
+        return evaluate_requirements(
+            Profile(summary=summary),
+            JobPosting(title="T", company="C", description="Requirements\n- " + requirement),
+        )
+
+    def test_language_residual_blocks_years_strong_in_both_orders(self):
+        summary = "7+ years in growth marketing. English: fluent professional proficiency."
+        for join in self.joins:
+            for requirement in (
+                f"5 years of growth marketing {join} fluent English",
+                f"fluent English {join} 5 years of growth marketing",
+            ):
+                with self.subTest(requirement=requirement):
+                    report = self.report(summary, requirement)
+                    self.assertEqual(0, report.strong)
+                    self.assertGreaterEqual(report.hard_missing, 1)
+
+    def test_nonlanguage_residual_blocks_years_strong_in_both_orders(self):
+        summary = "7+ years in growth marketing. B2B SaaS experience."
+        for join in self.joins:
+            for requirement in (
+                f"5 years of growth marketing {join} B2B SaaS experience",
+                f"B2B SaaS experience {join} 5 years of growth marketing",
+            ):
+                with self.subTest(requirement=requirement):
+                    report = self.report(summary, requirement)
+                    self.assertEqual(0, report.strong)
+                    self.assertGreaterEqual(report.hard_missing, 1)
+
+
+class CapitalizedModalityRegressions(unittest.TestCase):
+    def status(self, summary, requirement):
+        return evaluate_requirements(
+            Profile(summary=summary),
+            JobPosting(title="T", company="C", description="Requirements\n- " + requirement),
+        ).items[0].status
+
+    def test_capitalized_written_matches_equivalent_evidence(self):
+        self.assertEqual("strong", self.status("English: Written fluent.", "Written fluent English"))
+
+    def test_capitalized_modalities_still_do_not_cross(self):
+        self.assertEqual("missing", self.status("English: Spoken fluent.", "Written fluent English"))
+        self.assertEqual("missing", self.status("English: Written fluent.", "Spoken fluent English"))
