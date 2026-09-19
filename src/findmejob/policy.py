@@ -88,7 +88,13 @@ def _sector_match(job: JobPosting, configured: str) -> str | None:
     candidates = (needle,) + _SECTOR_CONCEPTS.get(needle, ())
     if needle == "forex trading":
         for phrase in candidates:
-            pattern = r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])"
+            # Keep the configured alias lookup aligned with the contextual matcher:
+            # cross-border payment(s) is one business concept across hyphenation
+            # and singular/plural wording.
+            if phrase in {"cross-border payment", "cross border payment"}:
+                pattern = r"(?<![a-z0-9])cross[- ]border payments?(?![a-z0-9])"
+            else:
+                pattern = r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])"
             if re.search(pattern, identity) or (re.search(pattern, text) and _FOREX_BUSINESS_CONTEXT.search(text)):
                 return phrase
         return None

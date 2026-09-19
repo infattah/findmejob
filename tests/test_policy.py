@@ -131,6 +131,22 @@ class TestForexProviderPhrasing(unittest.TestCase):
         self.assertEqual(self.check(
             "The group operates in the business of currency exchange and remittances."), "block")
 
+    def test_platform_for_cross_border_payments_only_blocks(self):
+        self.assertEqual(self.check(
+            "Acme is a platform for cross-border payments."), "block")
+
+    def test_cross_border_payments_platform_only_blocks(self):
+        self.assertEqual(self.check(
+            "Acme is a cross-border payments platform."), "block")
+
+    def test_platform_for_spaced_cross_border_payments_only_blocks(self):
+        self.assertEqual(self.check(
+            "Acme is a platform for cross border payments."), "block")
+
+    def test_spaced_cross_border_payments_platform_only_blocks(self):
+        self.assertEqual(self.check(
+            "Acme is a cross border payments platform."), "block")
+
     def test_company_for_foreign_exchange_blocks(self):
         self.assertEqual(self.check(
             "A technology company for foreign exchange and global payments."), "block")
