@@ -43,3 +43,66 @@ class CompoundEvidenceCompositionTests(unittest.TestCase):
 
     def test_weak_fragments_do_not_combine(self):
         self.assertEqual("missing", self.status(["Some HubSpot exposure", "Interested in analytics tools"]))
+
+class CompoundSafetyReviewTests(unittest.TestCase):
+    def report(self, skills, requirement):
+        return evaluate_requirements(
+            Profile(skills=skills),
+            JobPosting(title="T", company="C", description="Requirements\n- " + requirement),
+        )
+
+    def test_numeric_tenure_never_uses_compound_composition(self):
+        cases = (
+            "5+ years of expertise in Python and SQL",
+            "Expertise in Python and SQL - 5+ years",
+            "Python and SQL expertise: 5+ years",
+            "5+ years: expertise in Python & SQL",
+        )
+        for requirement in cases:
+            with self.subTest(requirement=requirement):
+                self.assertNotEqual("strong", self.report(["Python", "SQL"], requirement).items[0].status)
+
+    def test_mixed_hubspot_and_tenure_cannot_compose(self):
+        cases = (
+            "Hands-on proficiency with HubSpot and 5+ years in B2B SaaS marketing",
+            "5+ years in B2B SaaS marketing and hands-on proficiency with HubSpot",
+            "Hands-on proficiency with HubSpot; 5+ years in B2B SaaS marketing",
+            "5+ years in B2B SaaS marketing - hands-on proficiency with HubSpot",
+        )
+        skills = ["HubSpot", "B2B SaaS marketing"]
+        for requirement in cases:
+            with self.subTest(requirement=requirement):
+                report = self.report(skills, requirement)
+                self.assertGreaterEqual(report.hard_missing, 1)
+
+    def test_low_confidence_cues_do_not_satisfy_proficiency(self):
+        for weak in (
+            "Familiarity with HubSpot",
+            "Familiar with HubSpot",
+            "Working knowledge of HubSpot",
+            "Awareness of HubSpot",
+            "Introductory HubSpot knowledge",
+        ):
+            with self.subTest(weak=weak):
+                report = self.report([weak, "Product analytics tools: PostHog"], "Hands-on proficiency with HubSpot and product analytics tools")
+                self.assertEqual("missing", report.items[0].status)
+
+    def test_negated_component_evidence_is_not_evidence(self):
+        for negated in (
+            "No experience with HubSpot",
+            "not proficient in HubSpot",
+            "without HubSpot experience",
+        ):
+            with self.subTest(negated=negated):
+                report = self.report([negated, "Product analytics tools: PostHog"], "Hands-on proficiency with HubSpot and product analytics tools")
+                self.assertEqual("missing", report.items[0].status)
+
+    def test_negated_ordinary_evidence_is_not_evidence(self):
+        for negated in (
+            "No experience with HubSpot",
+            "not proficient in HubSpot",
+            "without HubSpot experience",
+        ):
+            with self.subTest(negated=negated):
+                report = self.report([negated], "HubSpot experience required")
+                self.assertEqual("missing", report.items[0].status)

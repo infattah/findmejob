@@ -469,11 +469,19 @@ def _profession_anchor(tokens: set[str]) -> str | None:
 
 
 _PROFICIENCY_CUE = re.compile(r"(?i)\b(hands-on proficiency|proficiency|proficient|expertise)\b")
-_WEAK_EVIDENCE = re.compile(r"(?i)\b(?:basic|exposure|familiar|interested|some|vague|learning)\b")
+_WEAK_EVIDENCE = re.compile(
+    r"(?i)\b(?:basic|exposure|familiar(?:ity)?|interested|some|vague|learning|working knowledge|awareness|introductory)\b"
+)
+_NEGATED_EVIDENCE = re.compile(
+    r"(?i)\b(?:no (?:experience )?(?:with|in)?|not proficient (?:with|in)?|without)\s*"
+)
+
 
 
 def _compound_components(requirement: str) -> list[str]:
     """Return mandatory AND components for explicit proficiency compounds."""
+    if _YEARS.search(requirement):
+        return []
     if not _PROFICIENCY_CUE.search(requirement) or not re.search(r"(?i)\band\b", requirement):
         return []
     if re.search(r"(?i)\b(?:or|preferred|optional|nice[- ]to[- ]have|bonus)\b", requirement):
@@ -481,13 +489,15 @@ def _compound_components(requirement: str) -> list[str]:
     body = _PROFICIENCY_CUE.sub("", requirement, count=1)
     body = re.sub(r"(?i)^\s*(?:with|in)\s+", "", body).strip(" .;,:-")
     parts = [part.strip(" .;,:-") for part in re.split(r"(?i)\s+and\s+", body)]
+    if any(_YEARS.search(part) for part in parts):
+        return []
     return parts if len(parts) > 1 and all(_tokens(part) for part in parts) else []
 
 
 def _component_explicitly_grounded(component: str, fragment: str) -> bool:
     want = _tokens(component) - {"tools", "tool", "product"}
     got = _tokens(fragment)
-    if not want or _WEAK_EVIDENCE.search(fragment):
+    if not want or _WEAK_EVIDENCE.search(fragment) or _NEGATED_EVIDENCE.search(fragment):
         return False
     # Product analytics needs an explicit analytics/tool context, not unrelated
     # financial analytics or generic claims of tool use.
@@ -566,12 +576,16 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
     if not req_tokens:
         return RequirementMatch(requirement, "missing" if hard else "partial", [], hard)
     for skill in profile.skills:
+        if _WEAK_EVIDENCE.search(skill) or _NEGATED_EVIDENCE.search(skill):
+            continue
         skill_tokens = _tokens(skill)
         if skill_tokens and skill_tokens <= req_tokens:
             return RequirementMatch(requirement, "strong", [f"skill: {skill}"], hard)
     # A short decomposed clause is proven when every one of its content tokens
     # appears in a single bounded CV fragment.
     for fragment in _profile_evidence_fragments(profile):
+        if _WEAK_EVIDENCE.search(fragment) or _NEGATED_EVIDENCE.search(fragment):
+            continue
         if req_tokens <= _tokens(fragment):
             return RequirementMatch(requirement, "strong", [f"evidence: {fragment[:160]}"], hard)
     best: tuple[int, str] = (0, "")
