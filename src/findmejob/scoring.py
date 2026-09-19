@@ -18,6 +18,24 @@ def _tokens(text: str) -> set[str]:
     return {t for t in _TOKEN.findall(text.lower()) if t not in _STOP}
 
 
+def _target_phrase_in_title(keyword: str, title: str) -> bool:
+    """Match target tokens in order, allowing a short inserted specialism."""
+    target = _TOKEN.findall(keyword.lower())
+    words = _TOKEN.findall(title.lower())
+    if not target:
+        return False
+    pos = -1
+    for token in target:
+        try:
+            found = words.index(token, pos + 1)
+        except ValueError:
+            return False
+        if pos >= 0 and found - pos - 1 > 3:
+            return False
+        pos = found
+    return True
+
+
 def score_fit(profile: Profile, job: JobPosting, role_keywords: list[str] | None = None) -> FitScore:
     reasons: list[str] = []
     job_tokens = _tokens(job.search_text())
@@ -32,11 +50,10 @@ def score_fit(profile: Profile, job: JobPosting, role_keywords: list[str] | None
     if skill_hits:
         reasons.append("skills matched: " + ", ".join(skill_hits[:8]))
 
-    kw_hits = 0
-    for kw in role_keywords or []:
-        kw_tok = _tokens(kw)
-        if kw_tok and kw_tok & title_tokens:
-            kw_hits += 1
+    # A single generic shared word (for example "automation" in a content-
+    # operations title) must not turn an adjacent role into a target-role hit.
+    # Require the complete normalized target phrase in the title.
+    kw_hits = sum(1 for kw in role_keywords or [] if _target_phrase_in_title(kw, job.title))
     title_score = min(30, 15 * kw_hits)
     if kw_hits:
         reasons.append(f"title matches {kw_hits} target role keyword(s)")
@@ -55,6 +72,12 @@ def score_fit(profile: Profile, job: JobPosting, role_keywords: list[str] | None
         loc_score = 5
 
     score = min(100, skill_score + title_score + ctx_score + loc_score)
+    if role_keywords and not kw_hits:
+        # Keep adjacent discoveries visible, but below the default actionable
+        # threshold. A reviewer may still inspect them; they are not promoted
+        # from generic skill overlap alone.
+        score = min(score, 44)
+        reasons.append("title is adjacent to, not a direct match for, target roles")
     if not reasons:
         reasons.append("little overlap between the role and the master CV")
     return FitScore(score=score, reasons=reasons)
