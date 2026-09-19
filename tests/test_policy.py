@@ -107,3 +107,50 @@ class TestSectorBoundaryRegressions(unittest.TestCase):
         job = JobPosting(title="Growth Marketing Manager", company="Retail Co",
                          description="Own acquisition and analytics. Voluntary Self-Identification of Disability: alcoholism and alcohol use disorder.")
         self.assertEqual(check_job(job, {"sector_exclusions": ["alcohol"]}).verdict, "pass")
+
+class TestForexProviderPhrasing(unittest.TestCase):
+    def check(self, description, company="Acme"):
+        job = JobPosting(title="Growth Marketing Manager", company=company, location="Dubai",
+                         description=description)
+        return check_job(job, {"sector_exclusions": ["forex trading"]}).verdict
+
+    def test_provider_for_foreign_exchange_blocks(self):
+        # Exact independent-review probe wording.
+        self.assertEqual(self.check(
+            "Verto is a fintech provider for foreign exchange and cross-border payment services.",
+            company="Verto"), "block")
+
+    def test_provider_of_foreign_exchange_blocks(self):
+        self.assertEqual(self.check("We are a regulated provider of foreign exchange services."), "block")
+
+    def test_platform_for_cross_border_payments_blocks(self):
+        self.assertEqual(self.check(
+            "Our product is a platform for cross-border payments and currency conversion."), "block")
+
+    def test_business_of_currency_exchange_blocks(self):
+        self.assertEqual(self.check(
+            "The group operates in the business of currency exchange and remittances."), "block")
+
+    def test_company_for_foreign_exchange_blocks(self):
+        self.assertEqual(self.check(
+            "A technology company for foreign exchange and global payments."), "block")
+
+    def test_foreign_exchange_provider_reversed_order_blocks(self):
+        self.assertEqual(self.check(
+            "Verto, a foreign exchange provider, is hiring growth marketers.", company="Verto"), "block")
+
+    def test_customer_using_currency_conversion_services_is_neutral(self):
+        self.assertEqual(self.check(
+            "Our agency serves a travel customer who uses currency conversion services."), "pass")
+
+    def test_customer_using_cross_border_payment_services_is_neutral(self):
+        self.assertEqual(self.check(
+            "We serve e-commerce brands; one customer uses cross-border payment services for suppliers."), "pass")
+
+    def test_customer_using_foreign_exchange_for_invoices_is_neutral(self):
+        self.assertEqual(self.check(
+            "We serve e-commerce brands; one customer uses foreign exchange for supplier invoices."), "pass")
+
+    def test_fx_awareness_without_business_context_is_neutral(self):
+        self.assertEqual(self.check(
+            "The role requires awareness of FX risk in media buying."), "pass")

@@ -51,13 +51,21 @@ _PROVIDER_CUSTOMER_CONTEXT = re.compile(
     r"clients? (?:are|include))\s+(?:the\s+)?(?:restaurants?|hospitality(?: businesses| operators| customers)?|hotels?)\b",
     re.I,
 )
+_FOREX_RESTRICTED_PHRASE = (
+    r"\b(?:foreign exchange|fx|cross[- ]border payments?|currency (?:exchange|conversion))\b"
+)
+_FOREX_BUSINESS_NOUN = r"\b(?:compan(?:y|ies)|business(?:es)?|fintechs?|platforms?|providers?|services?|networks?)\b"
 _FOREX_BUSINESS_CONTEXT = re.compile(
+    # business noun + offering verb + restricted phrase
     r"\b(?:company|business|fintech|platform|provider|service|network|we|our)\b.{0,100}"
     r"\b(?:provides?|offers?|speciali[sz](?:es|ing)|enables?|facilitates?|powers?|"
     r"operates?|delivers?|built for|focused on)\b.{0,80}"
-    r"\b(?:foreign exchange|fx|cross[- ]border payments?|currency (?:exchange|conversion))\b|"
-    r"\b(?:foreign exchange|fx|cross[- ]border payments?|currency (?:exchange|conversion))\b"
-    r".{0,80}\b(?:company|business|fintech|platform|provider|service|network)\b",
+    + _FOREX_RESTRICTED_PHRASE + "|"
+    # business noun + for/of + restricted phrase ("provider for foreign exchange")
+    + _FOREX_BUSINESS_NOUN + r"\s+(?:for|of)\s+" + _FOREX_RESTRICTED_PHRASE + "|"
+    # restricted phrase + business noun ("foreign exchange provider")
+    + _FOREX_RESTRICTED_PHRASE
+    + r".{0,80}\b(?:company|business|fintech|platform|provider|service|network)\b",
     re.I,
 )
 
