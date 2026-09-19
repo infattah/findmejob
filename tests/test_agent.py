@@ -70,3 +70,40 @@ class TestMainAgent(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestAgentQualificationRegressions(unittest.TestCase):
+    def setUp(self):
+        self.agent, self.tracker, self.root = make_agent()
+
+    def tearDown(self):
+        self.tracker.close()
+
+    def test_verify_404_persists_expiry_and_recomputes_stale(self):
+        import urllib.error
+        from unittest.mock import patch
+
+        self.agent.handle("find jobs")
+        row = self.tracker.list_jobs()[0]
+        with patch("findmejob.agent.workers.urllib.request.urlopen",
+                   side_effect=urllib.error.HTTPError(row["url"], 404, "gone", {}, None)):
+            reply = self.agent.handle(f"verify {row['id']}")
+        state = next(j for j in self.tracker.list_jobs() if j["id"] == row["id"])
+        self.assertEqual("expired", state["liveness"])
+        self.assertEqual("stale", state["decision"])
+        self.assertEqual("skipped", state["status"])
+        self.assertIn("decision stale", reply)
+
+    def test_pending_answer_records_context_and_retriages_without_shortlisting(self):
+        self.agent.handle("find jobs")
+        pending = self.tracker.pending()[0]
+        state = next(j for j in self.tracker.list_jobs() if j["id"] == pending["job_id"])
+        self.assertIn(state["decision"], {"insufficient_evidence", "plausible", "policy_review"})
+        reply = self.agent.handle("Yes, I reviewed it, but there is no new source evidence.")
+        after = next(j for j in self.tracker.list_jobs() if j["id"] == pending["job_id"])
+        self.assertEqual(state["decision"], after["decision"])
+        self.assertEqual("needs_input", after["status"])
+        self.assertNotEqual("shortlisted", after["status"])
+        self.assertIn(f"{state['decision']} (needs_input)", reply)
+        details = [e["detail"] for e in self.tracker.events(100)
+                   if e["job_id"] == after["id"] and e["kind"] == "user_context"]
+        self.assertTrue(any("no new source evidence" in d for d in details))

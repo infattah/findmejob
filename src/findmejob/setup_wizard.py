@@ -51,7 +51,6 @@ def build_config_from_answers(a: dict[str, Any]) -> dict[str, Any]:
             "locations_exclude": [],
             "sector_exclusions": [x.strip() for x in a.get("exclusions", []) if x.strip()],
             "title_exclude": ["intern", "unpaid"],
-            "min_fit_score": 45,
         },
         "autonomy": {
             "auto_apply": False,

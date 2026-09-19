@@ -32,3 +32,11 @@ class QualificationIntegration(unittest.TestCase):
         self.cfg.raw['policy']['sector_exclusions']=['gaming']; self.verify(j); self.t.set_liveness(j.id,'alive','apply now'); run_triage(self.cfg,self.t)
         self.assertEqual('reject',self.t.qualification(j.id)['decision'])
         self.t.close(); self.t=Tracker(self.cfg.db_path); self.assertEqual('reject',self.t.qualification(j.id)['decision'])
+
+    def test_terminal_status_blocks_stale_strong_decision(self):
+        from findmejob.qualification import QualificationResult, QualificationSignals
+        j=self.job(); self.verify(j); self.t.set_liveness(j.id,'alive','apply now'); run_triage(self.cfg,self.t)
+        self.assertEqual('strong',self.t.qualification(j.id)['decision'])
+        for status in ('skipped', 'rejected'):
+            self.t.set_status(j.id,status,'terminal workflow state')
+            self.assertIn(f'tracker status is {status}',self.t.require_strong(j.id))

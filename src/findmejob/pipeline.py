@@ -110,7 +110,7 @@ def _has_substantive_job_evidence(job: JobPosting) -> bool:
     return signals >= 2
 
 
-def run_triage(cfg: Config, tracker: Tracker) -> dict[str, Any]:
+def run_triage(cfg: Config, tracker: Tracker, job_id: str | None = None) -> dict[str, Any]:
     from .evidence import evaluate_requirements
     from .qualification import qualify
     from .signal_adapter import build_signals
@@ -118,6 +118,8 @@ def run_triage(cfg: Config, tracker: Tracker) -> dict[str, Any]:
     counts = {"strong": 0, "plausible": 0, "insufficient_evidence": 0,
               "policy_review": 0, "stale": 0, "reject": 0}
     for row in tracker.list_jobs():
+        if job_id is not None and row["id"] != job_id:
+            continue
         if row["status"] == "applied":
             continue
         job = tracker.get_job(row["id"])
@@ -133,7 +135,7 @@ def run_triage(cfg: Config, tracker: Tracker) -> dict[str, Any]:
         tracker.set_qualification(job.id, result, signals)
         counts[result.decision] += 1
         if result.decision in {"plausible", "insufficient_evidence", "policy_review"}:
-            tracker.add_pending(f"Review needed for {job.title} @ {job.company}: " + "; ".join(result.reasons), job_id=job.id)
+            tracker.add_pending_once(f"Review needed for {job.title} @ {job.company}: " + "; ".join(result.reasons), job_id=job.id)
     return {**counts, "shortlisted": counts["strong"],
             "needs_review": counts["plausible"] + counts["insufficient_evidence"] + counts["policy_review"],
             "below_floor": counts["reject"]}

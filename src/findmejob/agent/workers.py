@@ -51,10 +51,16 @@ def _verify(payload: dict, cfg: Config, tracker: Tracker) -> AgentResult:
     except Exception as exc:
         return AgentResult(False, f"verify failed: {exc}")
     if code in (404, 410):
-        tracker.set_status(job_id, "skipped", "role page is dead")
-        return AgentResult(True, f"{job.title} @ {job.company}: page gone ({code}), marked skipped")
-    tracker.add_event(job_id, "verify", f"HTTP {code}")
-    return AgentResult(True, f"{job.title} @ {job.company}: still live (HTTP {code})")
+        tracker.set_liveness(job_id, "expired", f"HTTP {code}")
+        tri = run_triage(cfg, tracker, job_id=job_id)
+        decision = tracker.qualification(job_id).get("decision")
+        return AgentResult(True, f"{job.title} @ {job.company}: page gone ({code}); "
+                           f"liveness expired, decision {decision}", data=tri)
+    tracker.set_liveness(job_id, "alive", f"HTTP {code}")
+    tri = run_triage(cfg, tracker, job_id=job_id)
+    decision = tracker.qualification(job_id).get("decision")
+    return AgentResult(True, f"{job.title} @ {job.company}: still live (HTTP {code}); "
+                       f"decision {decision}", data=tri)
 
 
 def _tailor(payload: dict, cfg: Config, tracker: Tracker) -> AgentResult:

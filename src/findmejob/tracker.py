@@ -234,7 +234,13 @@ class Tracker:
         }
 
     def require_strong(self, job_id: str) -> str | None:
+        row = self.conn.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
+        status = row["status"] if row else None
         decision = self.qualification(job_id).get("decision")
+        # Defense in depth: manual status changes or legacy/corrupt rows must not
+        # revive a terminal job even if an old decision still says strong.
+        if status in {"skipped", "rejected", "stale"}:
+            return f"job is not actionable: tracker status is {status}"
         if decision != "strong":
             return f"job is not actionable: qualification decision is {decision or 'not computed'}; run triage after verification and liveness checks"
         return None
@@ -302,6 +308,17 @@ class Tracker:
         self.conn.execute("INSERT INTO pending (job_id,question,asked) VALUES (?,?,?)",
                           (job_id, question, time.time()))
         self.conn.commit()
+
+    def add_pending_once(self, question: str, job_id: str | None = None) -> bool:
+        """Record a distinct review question once, including after it is answered."""
+        row = self.conn.execute(
+            "SELECT 1 FROM pending WHERE question=? AND "
+            "((job_id IS NULL AND ? IS NULL) OR job_id=?) LIMIT 1",
+            (question, job_id, job_id)).fetchone()
+        if row:
+            return False
+        self.add_pending(question, job_id=job_id)
+        return True
 
     def pending(self) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM pending WHERE answer IS NULL ORDER BY asked").fetchall()
