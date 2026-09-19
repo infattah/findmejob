@@ -8,6 +8,9 @@ Job: find roles worth the user's time.
   salaries are skipped automatically. Borderline cases go to needs_input
   with the exact reason.
 - Dedupe is by URL/title+company hash; reruns are cheap and safe.
+- Before handing a role to apply, route it through the company-verification workflow. A
+  verified official careers page or ATS can replace a dead aggregator listing; an unknown
+  company stays unknown rather than being guessed safe or unsafe.
 
 Adding sources: any public Greenhouse board, Lever board, Workable board,
 RSS feed, Remotive search, or a local JSON list. See docs/sources.md.
