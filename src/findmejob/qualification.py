@@ -99,7 +99,7 @@ def qualify(signals: QualificationSignals) -> QualificationResult:
     if missing_coverage:
         return QualificationResult(
             "insufficient_evidence", False,
-            ("missing minimum evidence: " + ", ".join(missing_coverage),), coverage)
+            tuple(["missing minimum evidence: " + ", ".join(missing_coverage)] + list(s.critical_gaps)), coverage)
 
     mismatch = (
         s.title_alignment == "mismatch" or s.function_alignment == "mismatch"

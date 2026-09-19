@@ -40,15 +40,12 @@ class TestMainAgent(unittest.TestCase):
     def test_intern_blocked_by_policy(self):
         self.agent.handle("find jobs")
         rows = [r for r in self.tracker.list_jobs() if "Intern" in r["title"]]
-        self.assertEqual(rows[0]["status"], "skipped")
+        self.assertEqual(rows[0]["status"], "rejected")
 
     def test_tailor_via_chat(self):
         self.agent.handle("find jobs")
         reply = self.agent.handle("tailor Fictional Pets")
-        self.assertIn("CV", reply)
-        cvs = list((self.root / "output/cvs").glob("*.md"))
-        self.assertEqual(len(cvs), 1)
-        self.assertEqual(len(list((self.root / "output/emails").glob("*.txt"))), 1)
+        self.assertIn("not actionable", reply)
 
     def test_preference_learning(self):
         reply = self.agent.handle("my salary floor is 200000")

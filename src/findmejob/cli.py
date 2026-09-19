@@ -157,16 +157,13 @@ def cmd_refresh(args) -> int:
             break
         checked += 1
         status, detail = check_listing(row["url"])
-        if status == "expired":
-            tracker.set_status(row["id"], "skipped", f"listing expired: {detail}")
-            expired += 1
-        elif status == "alive":
-            tracker.add_event(row["id"], "liveness", f"alive: {detail}")
-            alive += 1
-        else:
-            tracker.add_event(row["id"], "liveness", f"unknown: {detail}")
-            unknown += 1
-    print(f"Checked {checked}: {alive} alive, {expired} expired, {unknown} unknown.")
+        tracker.set_liveness(row["id"], status, detail)
+        if status == "expired": expired += 1
+        elif status == "alive": alive += 1
+        else: unknown += 1
+    from .pipeline import run_triage
+    decisions = run_triage(cfg, tracker)
+    print(f"Checked {checked}: {alive} alive, {expired} expired, {unknown} unknown. Decisions recomputed: {decisions}")
     return 0
 
 

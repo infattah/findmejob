@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .qualification import QualificationSignals, qualify
+from .models import JobPosting, Profile
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,34 @@ def run_benchmark(path: str | Path) -> BenchmarkResult:
         if row.get("zero_tolerance") and result.actionable:
             zt += 1
     return BenchmarkResult(len(rows), correct, tp, fp, fn, zt, tuple(mismatches))
+
+
+def run_replay_benchmark(path: str | Path) -> BenchmarkResult:
+    """Replay labeled posting/profile/state records through signal production.
+
+    Fixtures remain curated and cannot prove field performance; unlike the signal-only
+    benchmark, this catches adapter regressions in policy, evidence, alignment and state.
+    """
+    from .signal_adapter import build_signals
+    from .tracker import Tracker
+    import tempfile
+    rows=json.loads(Path(path).read_text(encoding="utf-8")); derived=[]
+    for row in rows:
+        with tempfile.TemporaryDirectory() as td:
+            tracker=Tracker(Path(td)/"replay.db")
+            job=JobPosting.from_dict(row["job"]); tracker.upsert_job(job, verdict="pass")
+            tracker.set_liveness(job.id,row.get("liveness","unknown"),"benchmark fixture")
+            verification=row.get("verification")
+            if verification:
+                from .verification import CompanyVerification
+                tracker.set_verification(job.id,CompanyVerification.from_dict(verification))
+            profile=Profile.from_dict(row["profile"]) if hasattr(Profile,"from_dict") else Profile(raw_text=row["profile"].get("raw_text",""), skills=row["profile"].get("skills",[]), headline=row["profile"].get("headline",""), summary=row["profile"].get("summary",""))
+            sig=build_signals(profile=profile,job=job,policy=row.get("policy",{}),role_keywords=row.get("role_keywords",[]),tracker=tracker)
+            derived.append({"id":row["id"],"expected":row["expected"],"signals":__import__("dataclasses").asdict(sig),"zero_tolerance":row.get("zero_tolerance",False)})
+            tracker.close()
+    tmp=Path(str(path)+".derived.tmp")
+    try: tmp.write_text(json.dumps(derived)); return run_benchmark(tmp)
+    finally: tmp.unlink(missing_ok=True)
 
 
 def main(argv=None) -> int:

@@ -35,9 +35,12 @@ _BOILERPLATE_START = re.compile(
 # Configured phrases remain the source of policy. These aliases only recognize
 # ordinary descriptions of the same configured restricted business concept.
 _SECTOR_CONCEPTS: dict[str, tuple[str, ...]] = {
-    "forex trading": ("foreign exchange", "fx", "cross-border payment", "cross border payment",
-                      "currency exchange", "currency conversion", "remittance",
-                      "payment transaction", "payroll services", "corporate payments", "card services"),
+    "forex trading": ("foreign exchange", "fx", "currency exchange", "currency conversion"),
+    "money transfer": ("remittance", "cross-border payment", "cross border payment"),
+    "payment processing": ("payment transaction", "payment processing"),
+    "payroll services": ("payroll service", "payroll platform"),
+    "corporate payments": ("corporate payment",),
+    "card services": ("card service", "card issuing"),
     "capital markets": ("investment platform", "wealth management", "digital wealth",
                         "brokerage", "trading platform"),
     "wealth": ("wealth management", "digital wealth", "investment platform"),
@@ -104,7 +107,7 @@ def _sector_match(job: JobPosting, configured: str) -> str | None:
     text = _business_text(job)
     identity = " ".join((job.company, job.title)).lower()
     candidates = (needle,) + _SECTOR_CONCEPTS.get(needle, ())
-    if needle == "forex trading":
+    if needle in {"forex trading", "money transfer", "payment processing", "payroll services", "corporate payments", "card services"}:
         for phrase in candidates:
             # Keep the configured alias lookup aligned with the contextual matcher:
             # cross-border payment(s) is one business concept across hyphenation

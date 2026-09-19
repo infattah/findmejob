@@ -131,8 +131,8 @@ class TrialOneRegressions(unittest.TestCase):
             row = tracker.list_jobs()[0]
             self.assertIsNotNone(row["score"])
             self.assertEqual(row["status"], "needs_input")
-            self.assertIn("salary not stated", row["notes"])
-            self.assertIn("hard requirement not proven", row["notes"])
+            self.assertIn("confirmed open application state", row["notes"])
+            self.assertIn("missing minimum evidence", row["notes"])
             pending = tracker.pending()
             self.assertEqual(len(pending), 1)
             self.assertIn("hard requirement not proven: Fluent written Arabic is required",
@@ -167,7 +167,7 @@ class TrialThreeRecommendationQuality(unittest.TestCase):
             row = tracker.list_jobs()[0]
             self.assertEqual(result["shortlisted"], 0)
             self.assertEqual(row["status"], "needs_input")
-            self.assertIn("insufficient job evidence", row["notes"])
+            self.assertIn("missing minimum evidence", row["notes"])
             tracker.close()
 
     def test_adjacent_content_operations_role_is_not_shortlisted(self):
@@ -202,8 +202,8 @@ class TrialThreeEvidenceCompletenessBoundaries(unittest.TestCase):
             tracker.upsert_job(job, verdict="pass"); tracker.conn.commit()
             result = run_triage(cfg, tracker)
             row = tracker.list_jobs()[0]
-            self.assertEqual(result["shortlisted"], 1)
-            self.assertEqual(row["status"], "shortlisted")
+            self.assertEqual(result["shortlisted"], 0)
+            self.assertEqual(row["status"], "needs_input")
             tracker.close()
 
     def test_wordy_title_repetition_remains_insufficient(self):
@@ -216,5 +216,5 @@ class TrialThreeEvidenceCompletenessBoundaries(unittest.TestCase):
             row = tracker.list_jobs()[0]
             self.assertEqual(result["shortlisted"], 0)
             self.assertEqual(row["status"], "needs_input")
-            self.assertIn("insufficient job evidence", row["notes"])
+            self.assertIn("missing minimum evidence", row["notes"])
             tracker.close()

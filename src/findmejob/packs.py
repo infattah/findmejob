@@ -35,7 +35,11 @@ def build_pack(cfg: Config, tracker: Tracker, job_query: str) -> dict[str, Any]:
     if not job_id:
         return {"error": f"no job matching '{job_query}'"}
     job = tracker.get_job(job_id)
-    assert job
+    if job is None:
+        return {"error": "tracked job disappeared"}
+    blocked = tracker.require_strong(job_id)
+    if blocked:
+        return {"error": blocked}
     profile = load_profile(cfg)
 
     pack_dir = cfg.output_dir / "packs" / f"{_safe_name(job.company)}_{job.id}"

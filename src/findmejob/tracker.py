@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import asdict
 import threading
 import time
 from pathlib import Path
@@ -23,6 +24,10 @@ CREATE TABLE IF NOT EXISTS jobs (
   score INTEGER,
   policy_verdict TEXT,
   notes TEXT DEFAULT '',
+  qualification_decision TEXT,
+  qualification_data TEXT DEFAULT '{}',
+  liveness TEXT NOT NULL DEFAULT 'unknown',
+  liveness_detail TEXT DEFAULT '',
   first_seen REAL NOT NULL,
   updated REAL NOT NULL
 );
@@ -114,8 +119,17 @@ class Tracker:
         try:
             self.conn.execute("ALTER TABLE jobs ADD COLUMN follow_up REAL")
             self.conn.commit()
-        except Exception:
+        except sqlite3.OperationalError:
             pass  # column already exists
+        for column, ddl in (("qualification_decision", "TEXT"),
+                            ("qualification_data", "TEXT DEFAULT '{}'"),
+                            ("liveness", "TEXT NOT NULL DEFAULT 'unknown'"),
+                            ("liveness_detail", "TEXT DEFAULT ''")):
+            try:
+                self.conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} {ddl}")
+                self.conn.commit()
+            except sqlite3.OperationalError:
+                pass
 
     def close(self) -> None:
         self.conn.close()
@@ -184,8 +198,46 @@ class Tracker:
                         "status": r["status"], "score": r["score"],
                         "policy_verdict": r["policy_verdict"], "notes": r["notes"],
                         "updated": r["updated"],
+                        "decision": r["qualification_decision"],
+                        "qualification": json.loads(r["qualification_data"] or "{}"),
+                        "liveness": r["liveness"],
+                        "liveness_detail": r["liveness_detail"],
                         "verification": self.verification_summary(r["id"])})
         return out
+
+
+    def set_liveness(self, job_id: str, status: str, detail: str = "") -> None:
+        if status not in {"alive", "expired", "unknown"}:
+            raise ValueError(f"unknown liveness {status}")
+        self.conn.execute("UPDATE jobs SET liveness=?, liveness_detail=?, updated=? WHERE id=?",
+                          (status, detail, time.time(), job_id))
+        self.add_event(job_id, "liveness", f"{status}: {detail}")
+        self.conn.commit()
+
+    def set_qualification(self, job_id: str, result, signals) -> None:
+        payload = {"result": result.to_dict(), "signals": asdict(signals)}
+        status = {"strong": "shortlisted", "policy_review": "needs_input",
+                  "insufficient_evidence": "needs_input", "plausible": "needs_input",
+                  "stale": "skipped", "reject": "rejected"}[result.decision]
+        self.conn.execute(
+            "UPDATE jobs SET qualification_decision=?, qualification_data=?, status=?, notes=?, updated=? WHERE id=?",
+            (result.decision, json.dumps(payload), status, "; ".join(result.reasons), time.time(), job_id))
+        self.add_event(job_id, "qualification", f"{result.decision}: " + "; ".join(result.reasons))
+        self.conn.commit()
+
+    def qualification(self, job_id: str) -> dict[str, Any]:
+        row = self.conn.execute("SELECT qualification_decision,qualification_data FROM jobs WHERE id=?",
+                                (job_id,)).fetchone()
+        return {"decision": None, "result": {}, "signals": {}} if not row else {
+            "decision": row["qualification_decision"],
+            **json.loads(row["qualification_data"] or "{}")
+        }
+
+    def require_strong(self, job_id: str) -> str | None:
+        decision = self.qualification(job_id).get("decision")
+        if decision != "strong":
+            return f"job is not actionable: qualification decision is {decision or 'not computed'}; run triage after verification and liveness checks"
+        return None
 
     # alternate source links for the same role across boards
     def add_link(self, job_id: str, source: str, url: str) -> bool:

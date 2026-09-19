@@ -47,7 +47,7 @@ class TrialFiveBoundaryTests(unittest.TestCase):
         job = JobPosting(
             title="Performance Marketing Manager", company="Example Benefits UAE",
             description="We provide payroll services, corporate payments, money transfer and card services to employers.")
-        verdict = check_job(job, {"sector_exclusions": ["forex trading"]})
+        verdict = check_job(job, {"sector_exclusions": ["payroll services", "corporate payments", "money transfer", "card services"]})
         self.assertEqual("block", verdict.verdict)
 
     def test_deliverect_style_restaurant_saas_is_not_hospitality_employer(self):
@@ -67,3 +67,10 @@ class TrialFiveBoundaryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ReplayAdapterBenchmarkTests(unittest.TestCase):
+    def test_replay_exercises_signal_adapter(self):
+        from findmejob.benchmark import run_replay_benchmark
+        result=run_replay_benchmark(Path(__file__).parent/'fixtures'/'qualification_replay.json')
+        self.assertEqual(3,result.correct)
+        self.assertEqual(0,result.zero_tolerance_failures)

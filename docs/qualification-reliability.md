@@ -36,3 +36,9 @@ python -m findmejob.benchmark tests/fixtures/trials_1_5_qualification.json
 ```
 
 Report actionable precision and recall as exact numerators/denominators, full decision accuracy, mismatches, and zero-tolerance failures. The fixture is a regression set, not proof of general reliability. New staging trials must use new broad discovery inputs. Do not tune labels after seeing model output without recording why the independent label changed.
+
+## Live integration
+
+`run_triage` now builds signals from the posting, CV evidence, configured policy, persisted company verification, persisted listing liveness, salary and location. The tracker stores both normalized signals and the six-outcome result. Refresh persists each liveness result and recomputes decisions. Tailoring and application packs require a persisted `strong` decision.
+
+The signal-only benchmark isolates the decision ladder. The replay benchmark also exercises signal production from curated posting/profile/state records. Both are regression suites, not evidence of real-world reliability; field precision and recall still require fresh labeled trials.
