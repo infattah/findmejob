@@ -71,7 +71,7 @@ def _detect_currency(text: str) -> tuple[str, list[str]]:
     if "US$" in upper:
         return "USD", notes
     for code in sorted(_KNOWN_CODES - {"US$"}, key=len, reverse=True):
-        if re.search(rf"\b{code}\b", upper):
+        if re.search(rf"(?<![A-Z]){re.escape(code)}(?![A-Z])", upper):
             return code, notes
     for sym, code in _SYMBOLS.items():
         if sym in text:

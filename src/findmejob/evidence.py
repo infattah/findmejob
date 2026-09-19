@@ -21,6 +21,19 @@ _PREFERRED = re.compile(r"\b(nice[- ]to[- ]have|good[- ]to[- ]have|preferred|a p
 _REQ_MARKER = re.compile(r"(requires?|must|years?|experience|proficien\w*|degree|bachelor|master|diploma|fluent|native|certif\w*|knowledge|familiar\w*|expert\w*|ability to|skilled|skills)\b", re.I)
 _GENERIC_YEAR = {"requires", "require", "required", "minimum"}
 _DOMAIN_CUE = re.compile(r"(expertise|experience|knowledge|background|track record|domain)", re.I)
+_COMPANY_HISTORY_YEARS = re.compile(
+    r"(?i)\b(?:we|the company|our (?:company|business|group|brand|platform)|[A-Z][\w&.-]+)\b"
+    r".{0,45}\b(?:has|have|been|is|are|delivering|operating|serving|building|founded)\b"
+    r".{0,25}\b(?:for|over|more than)\s+\d{1,3}\s*(?:\+|plus)?\s*years?\b"
+)
+_GENERIC_CAREER_YEARS = re.compile(
+    r"(?i)\b\d{1,2}\s*(?:\+|plus)?\s*years?\s+(?:of\s+)?(?:professional |career |work )?experience\b"
+)
+_DOMAIN_EQUIVALENTS = (
+    frozenset({"performance", "paid", "acquisition", "media"}),
+    frozenset({"digital", "online"}),
+    frozenset({"automation", "lifecycle", "crm"}),
+)
 
 
 def _tokens(text: str) -> set[str]:
@@ -50,11 +63,12 @@ def extract_requirements(description: str, max_items: int = 12) -> list[str]:
             continue
         text = _BULLET.sub("", line).strip() if _BULLET.match(line) else line
         looks_like = in_req or any(x in text.lower() for x in ("year", "experience", "proficien", "degree", "skill", "knowledge", "familiar", "expert", "fluent", "native", "certif", "bachelor", "master", "diploma", "ability to", "required"))
-        if looks_like and 12 <= len(text) <= 300:
+        if looks_like and 12 <= len(text) <= 300 and not _COMPANY_HISTORY_YEARS.search(text):
             reqs.append(text)
     if not reqs:
         for sent in re.split(r"(?<=[.!?])\s+", description):
-            if _YEARS.search(sent) and 12 <= len(sent) <= 300:
+            if (_YEARS.search(sent) and 12 <= len(sent) <= 300
+                    and not _COMPANY_HISTORY_YEARS.search(sent)):
                 reqs.append(sent.strip())
     seen: set[str] = set()
     out: list[str] = []
@@ -287,9 +301,17 @@ def _grounded_domain(requirement: str, fragment: str) -> bool:
         alternatives = domain_terms - {"marketing"}
         return "marketing" in fragment_tokens and bool(alternatives & fragment_tokens)
     ratio = overlap / len(domain_terms)
-    # A single distinctive term can ground a one-term domain (for example SEO).
-    # Longer domain phrases need at least two matching terms and half the phrase.
-    return overlap >= 1 if len(domain_terms) == 1 else overlap >= 2 and ratio >= .5
+    if overlap >= 1 if len(domain_terms) == 1 else overlap >= 2 and ratio >= .5:
+        return True
+    # Job ads and CVs often use performance-marketing vocabulary interchangeably
+    # (paid acquisition, paid media, performance marketing). This equivalence is
+    # deliberately narrow and still requires a complete bounded CV fragment.
+    for family in _DOMAIN_EQUIVALENTS:
+        if domain_terms & family and fragment_tokens & family:
+            residual = domain_terms - family - {"marketing", "management"}
+            if not residual or bool(residual & fragment_tokens):
+                return True
+    return False
 
 
 def _domain_overlap(requirement: str, fragment: str) -> tuple[int, float]:
@@ -320,6 +342,18 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
                                     [f"domain-matched experience: {fragment[:160]}"], hard)
         domain_evidence = [fragment for fragment in fragments
                            if _grounded_domain(requirement, fragment)]
+        # A CV may state total professional tenure once, then list the matching
+        # domain and tools separately. Combine only an explicitly generic career
+        # duration with independently bounded domain evidence. A duration tied to
+        # consumer retail or another domain is never transferable.
+        generic_numeric = [(years, fragment) for years, fragment in numeric
+                           if _GENERIC_CAREER_YEARS.search(fragment)]
+        if generic_numeric and domain_evidence:
+            years, duration = max(generic_numeric, key=lambda item: item[0])
+            return RequirementMatch(
+                requirement, "strong",
+                [f"CV states {years}+ years overall and matching domain evidence: "
+                 f"{domain_evidence[0][:120]}"], hard)
         if domain_evidence:
             # Preserve recall when the CV proves the domain but does not attach a
             # trustworthy duration to it. Hard requirements still go to review.

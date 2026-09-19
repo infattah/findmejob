@@ -37,3 +37,14 @@ class TestLiveness(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestTrialFourLivenessRegressions(unittest.TestCase):
+    def test_explicit_vacancy_expired_wins_over_apply_cta(self):
+        body = ("<html><button>Apply now</button><p>This vacancy has expired.</p>" + "x" * 1000)
+        status, detail = check_listing("https://example/jobs/1", lambda u, t: (200, body))
+        self.assertEqual(status, "expired")
+        self.assertIn("vacancy has expired", detail)
+
+    def test_applications_closed_wins_over_application_form(self):
+        body = ("<html><div>Application form</div><p>Applications closed.</p>" + "x" * 1000)
+        self.assertEqual(check_listing("https://example/jobs/2", lambda u, t: (200, body))[0], "expired")

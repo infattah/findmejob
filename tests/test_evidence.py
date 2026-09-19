@@ -71,3 +71,29 @@ class TestEvaluation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestTrialFourEvidenceRegressions(unittest.TestCase):
+    def test_generic_seven_years_plus_matching_paid_domain_satisfies_range(self):
+        p = Profile(summary="Marketing professional with 7+ years of experience.",
+                    skills=["Paid media", "Meta Ads", "Google Ads", "A/B testing"])
+        job = JobPosting(title="Performance Marketing Specialist", company="instashop",
+                         description="Qualifications\n- 3-5 years of performance marketing experience")
+        item = evaluate_requirements(p, job).items[0]
+        self.assertEqual(item.status, "strong")
+
+    def test_domain_bound_unrelated_years_do_not_transfer(self):
+        p = Profile(summary="7+ years in consumer retail.", skills=["Paid media", "Google Ads"])
+        job = JobPosting(title="Lead", company="Acme",
+                         description="Qualifications\n- 5+ years of B2B SaaS demand generation experience")
+        self.assertNotEqual(evaluate_requirements(p, job).items[0].status, "strong")
+
+    def test_company_history_duration_is_not_candidate_requirement(self):
+        text = ("About us\nDelivery Hero has been delivering for 18 years across global markets.\n"
+                "Requirements\n- 4+ years of CRM marketing experience")
+        reqs = extract_requirements(text)
+        self.assertNotIn("Delivery Hero has been delivering for 18 years across global markets.", reqs)
+        self.assertIn("4+ years of CRM marketing experience", reqs)
+
+    def test_we_have_operated_for_years_is_not_candidate_requirement(self):
+        self.assertEqual(extract_requirements(
+            "About us. We have operated for 12 years serving local merchants."), [])

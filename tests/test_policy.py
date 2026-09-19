@@ -170,3 +170,50 @@ class TestForexProviderPhrasing(unittest.TestCase):
     def test_fx_awareness_without_business_context_is_neutral(self):
         self.assertEqual(self.check(
             "The role requires awareness of FX risk in media buying."), "pass")
+
+class TestTrialFourSectorRegressions(unittest.TestCase):
+    def check(self, title, company, description):
+        return check_job(JobPosting(title=title, company=company, description=description),
+                         {"sector_exclusions": ["forex trading", "hotel", "hospitality"]})
+
+    def test_astra_remittance_role_blocks(self):
+        result = self.check(
+            "Growth Manager, Remittance", "Astra Tech",
+            "Build the remittance growth engine and improve FX transfer transactions.")
+        self.assertEqual(result.verdict, "block")
+
+    def test_remittance_provider_business_blocks(self):
+        result = self.check(
+            "Growth Manager", "Transfer Co",
+            "We are a digital provider of remittances and payment transactions.")
+        self.assertEqual(result.verdict, "block")
+
+    def test_neutral_payment_mentions_do_not_block(self):
+        result = self.check(
+            "Ecommerce Marketing Manager", "Retail Co",
+            "Improve checkout conversion and measure customer payment transactions.")
+        self.assertEqual(result.verdict, "pass")
+
+    def test_generic_payment_role_title_is_neutral(self):
+        result = self.check(
+            "Payments Marketing Manager", "Retail Software Co",
+            "Market checkout software to online merchants and analyze card payment conversion.")
+        self.assertEqual(result.verdict, "pass")
+
+    def test_payment_transaction_provider_business_blocks(self):
+        result = self.check(
+            "Growth Manager", "Transfer Network",
+            "Our network provides regulated payment transactions for international transfers.")
+        self.assertEqual(result.verdict, "block")
+
+    def test_disability_accommodation_request_does_not_imply_hotel(self):
+        result = self.check(
+            "Principal Solution Engineer - Marketing Cloud", "Salesforce",
+            "Salesforce is a cloud software company. Applicants needing an accommodation request because of a disability may contact recruiting.")
+        self.assertEqual(result.verdict, "pass")
+
+    def test_direct_hotel_identity_still_wins(self):
+        result = self.check(
+            "Software Marketing Manager", "Grand Hotel",
+            "We operate a hotel and use cloud software. Accommodation requests due to disability are welcome.")
+        self.assertEqual(result.verdict, "block")

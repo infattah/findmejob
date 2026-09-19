@@ -27,14 +27,17 @@ _BOILERPLATE_START = re.compile(
     r"(?i)\b(?:we are (?:an )?equal opportunity employer|equal employment opportunity|"
     r"equal opportunity employer|voluntary self[- ]identification(?: of disability)?|"
     r"self[- ]identification of disability|disability categories include|"
-    r"eeo(?:-| )?1(?: voluntary)? self[- ]identification)\b"
+    r"eeo(?:-| )?1(?: voluntary)? self[- ]identification|"
+    r"(?:reasonable )?accommodation request|request (?:a |an )?reasonable accommodation|"
+    r"accommodation (?:because of|due to) (?:a )?disabilit(?:y|ies))\b"
 )
 
 # Configured phrases remain the source of policy. These aliases only recognize
 # ordinary descriptions of the same configured restricted business concept.
 _SECTOR_CONCEPTS: dict[str, tuple[str, ...]] = {
     "forex trading": ("foreign exchange", "fx", "cross-border payment", "cross border payment",
-                      "currency exchange", "currency conversion"),
+                      "currency exchange", "currency conversion", "remittance",
+                      "payment transaction"),
     "capital markets": ("investment platform", "wealth management", "digital wealth",
                         "brokerage", "trading platform"),
     "wealth": ("wealth management", "digital wealth", "investment platform"),
@@ -52,7 +55,8 @@ _PROVIDER_CUSTOMER_CONTEXT = re.compile(
     re.I,
 )
 _FOREX_RESTRICTED_PHRASE = (
-    r"\b(?:foreign exchange|fx|cross[- ]border payments?|currency (?:exchange|conversion))\b"
+    r"\b(?:foreign exchange|fx|cross[- ]border payments?|currency (?:exchange|conversion)|"
+    r"remittances?|payment transactions?)\b"
 )
 _FOREX_BUSINESS_NOUN = r"\b(?:compan(?:y|ies)|business(?:es)?|fintechs?|platforms?|providers?|services?|networks?)\b"
 _FOREX_BUSINESS_CONTEXT = re.compile(
@@ -93,6 +97,10 @@ def _sector_match(job: JobPosting, configured: str) -> str | None:
             # and singular/plural wording.
             if phrase in {"cross-border payment", "cross border payment"}:
                 pattern = r"(?<![a-z0-9])cross[- ]border payments?(?![a-z0-9])"
+            elif phrase == "remittance":
+                pattern = r"(?<![a-z0-9])remittances?(?![a-z0-9])"
+            elif phrase == "payment transaction":
+                pattern = r"(?<![a-z0-9])payment transactions?(?![a-z0-9])"
             else:
                 pattern = r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])"
             if re.search(pattern, identity) or (re.search(pattern, text) and _FOREX_BUSINESS_CONTEXT.search(text)):
