@@ -469,27 +469,65 @@ def _profession_anchor(tokens: set[str]) -> str | None:
 
 
 _PROFICIENCY_CUE = re.compile(r"(?i)\b(hands-on proficiency|proficiency|proficient|expertise)\b")
-_WEAK_EVIDENCE = re.compile(
-    r"(?i)\b(?:basic|exposure|familiar(?:ity)?|interested|some|vague|learning|working knowledge|awareness|introductory)\b"
+_NUMBER_WORD = r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)"
+_TENURE_PHRASE = re.compile(
+    rf"(?i)(?:\b\d{{1,2}}\s*(?:\+|plus|or\s+more)?|\b{_NUMBER_WORD}\s*(?:plus|or\s+more)?)\s+years?\b"
 )
-_NEGATED_EVIDENCE = re.compile(
-    r"(?i)\b(?:no (?:experience )?(?:with|in)?|not proficient (?:with|in)?|without)\s*"
+_LOW_CONFIDENCE = re.compile(
+    r"(?i)\b(?:basic|limited|novic(?:e|es)|beginner(?:s)?|dabbl(?:e|ed|ing)|"
+    r"expos(?:ure|ed)|famili(?:ar|arity)|interested|some|vague|learning|aware(?:ness)?|"
+    r"introductor(?:y|ily)|working knowledge|high[- ]level (?:understanding|knowledge)|"
+    r"occasional(?:ly)? (?:use|used|using)|use(?:d)? [a-z0-9+#.]+ occasionally)\b"
+)
+_NEGATION = re.compile(
+    r"(?i)\b(?:no|lack(?:s|ed|ing)?|never|not|without|do not|does not|did not|"
+    r"have not|has not|had not)\b"
 )
 
+
+def _normalized_evidence(text: str) -> str:
+    normalized = text.lower().replace("’", "'")
+    contractions = {
+        "doesn't": "does not", "don't": "do not", "didn't": "did not",
+        "haven't": "have not", "hasn't": "has not", "hadn't": "had not",
+        "isn't": "is not", "wasn't": "was not", "weren't": "were not",
+    }
+    for source, target in contractions.items():
+        normalized = normalized.replace(source, target)
+    return re.sub(r"[^a-z0-9+#.]+", " ", normalized).strip()
+
+
+def _evidence_strength(fragment: str, component: str | None = None) -> str:
+    """Classify bounded evidence as strong, weak, or negated for a local claim."""
+    normalized = _normalized_evidence(fragment)
+    if _LOW_CONFIDENCE.search(normalized):
+        return "weak"
+    if component:
+        anchors = _tokens(component) - {"tools", "tool", "product", "experience"}
+        words = normalized.split()
+        for anchor in anchors:
+            positions = [i for i, word in enumerate(words) if word == anchor]
+            for pos in positions:
+                local = " ".join(words[max(0, pos - 4):pos + 5])
+                if _NEGATION.search(local):
+                    return "negated"
+    elif _NEGATION.search(normalized):
+        return "negated"
+    return "strong"
 
 
 def _compound_components(requirement: str) -> list[str]:
     """Return mandatory AND components for explicit proficiency compounds."""
-    if _YEARS.search(requirement):
+    if _TENURE_PHRASE.search(requirement):
         return []
-    if not _PROFICIENCY_CUE.search(requirement) or not re.search(r"(?i)\band\b", requirement):
+    if not _PROFICIENCY_CUE.search(requirement) or not re.search(r"(?i)(?:\band\b|[&/])", requirement):
         return []
     if re.search(r"(?i)\b(?:or|preferred|optional|nice[- ]to[- ]have|bonus)\b", requirement):
         return []
     body = _PROFICIENCY_CUE.sub("", requirement, count=1)
     body = re.sub(r"(?i)^\s*(?:with|in)\s+", "", body).strip(" .;,:-")
-    parts = [part.strip(" .;,:-") for part in re.split(r"(?i)\s+and\s+", body)]
-    if any(_YEARS.search(part) for part in parts):
+    parts = [part.strip(" .;,:-") for part in re.split(r"(?i)\s*(?:\band\b|[&/])\s*", body)]
+    if any(_TENURE_PHRASE.search(part) for part in parts):
         return []
     return parts if len(parts) > 1 and all(_tokens(part) for part in parts) else []
 
@@ -497,7 +535,7 @@ def _compound_components(requirement: str) -> list[str]:
 def _component_explicitly_grounded(component: str, fragment: str) -> bool:
     want = _tokens(component) - {"tools", "tool", "product"}
     got = _tokens(fragment)
-    if not want or _WEAK_EVIDENCE.search(fragment) or _NEGATED_EVIDENCE.search(fragment):
+    if not want or _evidence_strength(fragment, component) != "strong":
         return False
     # Product analytics needs an explicit analytics/tool context, not unrelated
     # financial analytics or generic claims of tool use.
@@ -572,11 +610,16 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
             return RequirementMatch(requirement, "partial",
                                     [f"domain evidence without grounded duration: {domain_evidence[0][:140]}"], hard)
         return RequirementMatch(requirement, "missing", [], hard)
+    # Spelled-out tenure belongs to the tenure matcher, not generic token
+    # overlap. Until that matcher supports it, fail closed rather than borrowing
+    # words such as "five" from an unrelated team-size statement.
+    if _TENURE_PHRASE.search(requirement):
+        return RequirementMatch(requirement, "missing", [], hard)
     req_tokens = _tokens(requirement)
     if not req_tokens:
         return RequirementMatch(requirement, "missing" if hard else "partial", [], hard)
     for skill in profile.skills:
-        if _WEAK_EVIDENCE.search(skill) or _NEGATED_EVIDENCE.search(skill):
+        if _evidence_strength(skill, requirement) != "strong":
             continue
         skill_tokens = _tokens(skill)
         if skill_tokens and skill_tokens <= req_tokens:
@@ -584,7 +627,7 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
     # A short decomposed clause is proven when every one of its content tokens
     # appears in a single bounded CV fragment.
     for fragment in _profile_evidence_fragments(profile):
-        if _WEAK_EVIDENCE.search(fragment) or _NEGATED_EVIDENCE.search(fragment):
+        if _evidence_strength(fragment, requirement) != "strong":
             continue
         if req_tokens <= _tokens(fragment):
             return RequirementMatch(requirement, "strong", [f"evidence: {fragment[:160]}"], hard)
