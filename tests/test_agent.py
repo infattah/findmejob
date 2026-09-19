@@ -17,6 +17,7 @@ def make_agent():
     cfg_raw["search"]["sources"] = [
         {"type": "jsonfile", "path": str(ROOT / "sample_data" / "sample_jobs.json")}]
     cfg_raw["policy"]["salary_floor"] = 60000
+    cfg_raw["policy"]["exchange_rates"] = {"AED": 0.272, "USD": 1.0}
     (root / "config.json").write_text(json.dumps(cfg_raw))
     (root / "data/profile").mkdir(parents=True)
     (root / "data/profile/master_cv.md").write_text(

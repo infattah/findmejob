@@ -2,18 +2,18 @@
 
 Open-source, local-first AI job-search and application copilot.
 
-findmejob turns one master CV and a plain preferences file into a repeatable pipeline:
+findmejob turns one master CV and a plain preferences file into a repeatable pipeline. It works for any profession and any region: everything role-, country- or industry-specific lives in your configuration, not in the code.
 
-1. **Find** roles from public job boards and feeds.
-2. **Filter** them against your constraints: salary floor, locations, industries, and anything you want excluded.
-3. **Verify** the employer from its official site, LinkedIn and an independent operational signal, while discovering source-backed careers, ATS or contact routes.
-4. **Score** fit against your real experience.
-5. **Tailor** your CV for each role, using only facts from your master CV. It never invents experience.
+1. **Find** roles from public job boards and feeds. Responses are cached with ETag/Last-Modified, so repeat runs only process what changed, and the same role found on several boards is merged into one record that keeps every source link.
+2. **Filter** them against your constraints: salary floor in your own currency, locations, industries, and anything you want excluded.
+3. **Verify** the employer from its official site, LinkedIn and an independent operational signal, while discovering source-backed careers, ATS or contact routes. Re-check listings later with `findmejob refresh --verify` so expired roles drop out.
+4. **Score** fit against your real experience, with an evidence report per role: every requirement found in the listing is labeled strong, partial or missing against your master CV.
+5. **Tailor** your CV for each role, using only facts from your master CV. It never invents experience. Output is Markdown plus a designed, ATS-safe PDF.
 6. **Draft** a short, natural application email. The CV carries the detail.
 7. **Apply** with a browser assistant that fills what it knows and stops to ask when it hits a CAPTCHA, a payment wall, an account-creation prompt, or a question your data cannot answer.
-8. **Track** every role, status, decision and follow-up date in a local database.
+8. **Track** every role, status, decision and follow-up date in a local database, and gather everything for one application into a single pack (`findmejob pack`).
 
-It is designed to be driven by chat through a coding agent you already use - Claude Code, Codex, or any tool-capable CLI agent - but every step is also a plain CLI command you can run yourself. No model lock-in: the core pipeline is deterministic Python, and LLM calls are optional and provider-pluggable.
+It is designed to be driven by chat through a coding agent you already use - Claude Code, Codex, or any tool-capable CLI agent - but every step is also a plain CLI command you can run yourself. No model lock-in: the core pipeline is deterministic Python, and LLM calls are optional and provider-pluggable. You do not need to be a developer: a guided setup writes your configuration from plain questions, and `findmejob doctor` tells you what is missing.
 
 ## Why it exists
 
@@ -21,20 +21,22 @@ Job hunting is repetitive: search ten sites, re-read your CV, rewrite the same e
 
 ## Quickstart
 
-Requires Python 3.10+. Core pipeline has zero required dependencies.
+Requires Python 3.10+. Core pipeline has zero required Python dependencies; PDF fonts are bundled.
 
 ```bash
 git clone https://github.com/infattah/findmejob.git
 cd findmejob
-pip install -e .            # or just run: python -m findmejob ...
+python -m pip install .      # regular, non-editable install
 
-findmejob init                       # creates config.json and data/ scaffold
-# edit config.json with your preferences
+findmejob setup                      # guided: plain questions -> config.json
 findmejob ingest --cv path/to/master_cv.md
-findmejob search                     # pulls from your configured sources
-findmejob triage                     # policy check + fit score
-findmejob tailor --job <id>          # tailored CV + email draft in output/
+findmejob doctor                     # checks your setup, says what is missing
+findmejob search                     # pulls from your configured sources (cached)
+findmejob triage                     # policy check + fit score + evidence report
+findmejob tailor --job <id>          # tailored CV (Markdown + PDF) + email draft
+findmejob pack --job <id>            # one folder with everything for that application
 findmejob apply --job <id>           # browser-assisted apply (dry-run by default)
+findmejob refresh --verify           # drop listings that have expired
 findmejob status                     # tracker overview
 ```
 
@@ -81,10 +83,12 @@ agents/        worker playbooks a coding agent follows (scout, analyst, tailor, 
 docs/          architecture, runtimes, configuration, safety, per-agent usage guides
 sample_data/   fictional master CV and sample jobs for the offline demo
 src/findmejob/agent/     the persistent main agent + focused workers
-src/findmejob/sources/   job board adapters (Greenhouse, Lever, Workable, RSS, Remotive, JSON)
+src/findmejob/sources/   job board adapters (Greenhouse, Lever, Ashby, SmartRecruiters, Workable, RSS, Remotive, JSON)
+src/findmejob/render/    designed Unicode PDF CV renderer (stdlib-only; bundled open fonts)
 src/findmejob/browser/   browser apply flow + safety guards (Playwright, optional)
 src/findmejob/ui/        local web UI with chat (stdlib http.server)
-tests/         offline unit tests (stdlib unittest, no network)
+tests/         offline unit tests (stdlib unittest, no network; PDF text-extraction
+               tests skip when poppler-utils is not installed)
 ```
 
 ## License

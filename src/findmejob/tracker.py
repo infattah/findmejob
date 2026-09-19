@@ -66,6 +66,13 @@ CREATE TABLE IF NOT EXISTS messages (
   role TEXT NOT NULL,
   text TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS job_links (
+  job_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  url TEXT NOT NULL,
+  first_seen REAL NOT NULL,
+  UNIQUE(job_id, source, url)
+);
 """
 
 
@@ -179,6 +186,30 @@ class Tracker:
                         "updated": r["updated"],
                         "verification": self.verification_summary(r["id"])})
         return out
+
+    # alternate source links for the same role across boards
+    def add_link(self, job_id: str, source: str, url: str) -> bool:
+        if not url:
+            return False
+        cur = self.conn.execute(
+            "INSERT OR IGNORE INTO job_links (job_id,source,url,first_seen) VALUES (?,?,?,?)",
+            (job_id, source or "unknown", url, time.time()))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def links(self, job_id: str) -> list[dict[str, str]]:
+        rows = self.conn.execute(
+            "SELECT source, url FROM job_links WHERE job_id=? ORDER BY first_seen",
+            (job_id,)).fetchall()
+        return [{"source": r["source"], "url": r["url"]} for r in rows]
+
+    def find_duplicate_job(self, job: JobPosting) -> JobPosting | None:
+        """Match a fetched job against already-tracked roles (canonical URL,
+        then normalized company/title/location signature)."""
+        from .dedupe import find_duplicate
+        rows = self.conn.execute("SELECT data FROM jobs").fetchall()
+        existing = [JobPosting.from_dict(json.loads(r["data"])) for r in rows]
+        return find_duplicate(job, existing)
 
     # evidence-backed company legitimacy and application routes
     def set_verification(self, job_id: str, verification) -> None:

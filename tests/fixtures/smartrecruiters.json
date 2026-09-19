@@ -1,0 +1,15 @@
+{
+  "offset": 0,
+  "limit": 100,
+  "totalFound": 1,
+  "content": [
+    {
+      "id": "sr-1",
+      "name": "Performance Marketing Specialist",
+      "location": {"city": "Berlin", "country": "DE", "remote": false},
+      "applyUrl": "https://jobs.smartrecruiters.com/exampleco/sr-1",
+      "ref": "https://www.smartrecruiters.com/exampleco/sr-1",
+      "releasedDate": "2026-09-12"
+    }
+  ]
+}

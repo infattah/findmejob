@@ -123,6 +123,70 @@ def cmd_apply(args) -> int:
     return 0
 
 
+def cmd_pack(args) -> int:
+    cfg = load_config(Path(args.dir) if args.dir else None)
+    tracker = Tracker(cfg.db_path)
+    from .packs import build_pack
+    res = build_pack(cfg, tracker, args.job)
+    if res.get("error"):
+        print(res["error"], file=sys.stderr)
+        return 1
+    print(f"Pack: {res['pack_dir']}")
+    for f in res["files"]:
+        print(f"  {f}")
+    if res["fidelity_warnings"]:
+        print("Fidelity check flagged terms not in your master CV:")
+        for w in res["fidelity_warnings"]:
+            print(f"  - {w}")
+    return 0
+
+
+def cmd_refresh(args) -> int:
+    cfg = load_config(Path(args.dir) if args.dir else None)
+    tracker = Tracker(cfg.db_path)
+    if not args.verify:
+        print("Nothing to do. Use --verify to check whether tracked listings are still live.")
+        return 0
+    from .liveness import check_listing
+    active = {"new", "shortlisted", "tailored", "ready", "needs_input"}
+    checked = expired = alive = unknown = 0
+    for row in tracker.list_jobs():
+        if row["status"] not in active or not row["url"]:
+            continue
+        if args.limit and checked >= args.limit:
+            break
+        checked += 1
+        status, detail = check_listing(row["url"])
+        if status == "expired":
+            tracker.set_status(row["id"], "skipped", f"listing expired: {detail}")
+            expired += 1
+        elif status == "alive":
+            tracker.add_event(row["id"], "liveness", f"alive: {detail}")
+            alive += 1
+        else:
+            tracker.add_event(row["id"], "liveness", f"unknown: {detail}")
+            unknown += 1
+    print(f"Checked {checked}: {alive} alive, {expired} expired, {unknown} unknown.")
+    return 0
+
+
+def cmd_setup(args) -> int:
+    from .setup_wizard import run_wizard
+    run_wizard(Path(args.dir) if args.dir else Path.cwd())
+    return 0
+
+
+def cmd_doctor(args) -> int:
+    from .setup_wizard import doctor
+    checks = doctor(Path(args.dir) if args.dir else Path.cwd())
+    icon = {"ok": "ok  ", "warn": "warn", "fail": "FAIL"}
+    failed = False
+    for level, msg in checks:
+        print(f"[{icon[level]}] {msg}")
+        failed = failed or level == "fail"
+    return 1 if failed else 0
+
+
 def cmd_status(args) -> int:
     _, tracker = _agent(args)
     counts = tracker.counts()
@@ -238,6 +302,13 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("chat", help="talk to the main agent"); p.add_argument("message", nargs="*"); p.set_defaults(fn=cmd_chat)
     p = sub.add_parser("tick", help="run queued worker tasks"); p.set_defaults(fn=cmd_tick)
     p = sub.add_parser("runtimes", help="list agent runtimes and capabilities"); p.set_defaults(fn=cmd_runtimes)
+    p = sub.add_parser("pack", help="build a full application pack for a role")
+    p.add_argument("--job", required=True); p.set_defaults(fn=cmd_pack)
+    p = sub.add_parser("refresh", help="re-check tracked listings")
+    p.add_argument("--verify", action="store_true", help="check listings are still live")
+    p.add_argument("--limit", type=int, default=50); p.set_defaults(fn=cmd_refresh)
+    p = sub.add_parser("setup", help="guided setup - answers become config.json"); p.set_defaults(fn=cmd_setup)
+    p = sub.add_parser("doctor", help="check your setup and say what is missing"); p.set_defaults(fn=cmd_doctor)
     p = sub.add_parser("ui", help="local web UI with chat"); p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8787); p.set_defaults(fn=cmd_ui)
 

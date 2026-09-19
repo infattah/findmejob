@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "findmejob"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first AI job-search and application copilot: find roles, check fit and policy, tailor your CV, apply with a human in the loop."
 readme = "README.md"
 license = {text = "MIT"}
@@ -35,3 +35,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+"findmejob.render" = ["fonts/*.ttf", "fonts/*.txt"]

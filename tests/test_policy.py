@@ -1,10 +1,11 @@
 import unittest
 
 from findmejob.models import JobPosting
-from findmejob.policy import check_job, parse_salary_floor
+from findmejob.policy import check_job
 
 POLICY = {
     "salary_floor": 60000,
+    "currency": "USD",
     "locations_include": ["remote", "dubai"],
     "locations_exclude": [],
     "sector_exclusions": ["sector-you-avoid"],
@@ -15,7 +16,7 @@ POLICY = {
 class TestPolicy(unittest.TestCase):
     def job(self, **kw):
         base = dict(title="Growth Marketing Manager", company="Acme", location="Dubai",
-                    salary_text="$80,000 per year")
+                    salary_text="USD 80,000 per year")
         base.update(kw)
         return JobPosting(**base)
 
@@ -41,13 +42,6 @@ class TestPolicy(unittest.TestCase):
     def test_remote_ok(self):
         r = check_job(self.job(location="Anywhere", remote=True), POLICY)
         self.assertEqual(r.verdict, "pass")
-
-    def test_salary_parse(self):
-        self.assertEqual(parse_salary_floor("$70,000 - $90,000 per year"), 70000)
-        self.assertEqual(parse_salary_floor("AED 25,000 per month"), 300000)
-        self.assertEqual(parse_salary_floor("$45/hr"), 45 * 2080)
-        self.assertIsNone(parse_salary_floor(""))
-
 
 if __name__ == "__main__":
     unittest.main()

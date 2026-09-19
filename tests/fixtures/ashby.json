@@ -1,0 +1,14 @@
+{
+  "jobs": [
+    {
+      "id": "aaaa-bbbb",
+      "title": "Lifecycle Marketing Manager",
+      "location": {"name": "Remote - EU"},
+      "isRemote": true,
+      "jobUrl": "https://jobs.ashbyhq.com/exampleco/aaaa-bbbb",
+      "descriptionPlain": "You will own lifecycle campaigns.\n\nRequirements\n- 3+ years in lifecycle or CRM marketing\n- Experience with Braze or Iterable",
+      "compensation": {"compensationTierSummary": "EUR 60,000 - 75,000 per year"},
+      "publishedAt": "2026-09-10T08:00:00Z"
+    }
+  ]
+}

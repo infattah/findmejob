@@ -35,3 +35,22 @@
   localhost use. Do not expose it on a network interface.
 - **Salary parsing is best-effort** across currencies and periods; the floor
   check errs toward flagging for review rather than silently dropping roles.
+
+## Discovery, liveness and salary notes (0.2)
+
+- Listings from any source are leads, not proof a role is open or an
+  employer is legitimate. `findmejob refresh --verify` drops clearly expired
+  listings; it is deliberately conservative and leaves ambiguous pages
+  untouched, so a quiet network error never deletes a real role.
+- Salary comparison uses only exchange rates you configure. "$" without a
+  currency code is treated as ambiguous rather than assumed USD, and pay
+  periods that are not stated are not guessed. When a strict comparison is
+  impossible, the policy reason says exactly why.
+- Optional external collectors (JobSpy and similar scrapers) are never
+  installed or run by findmejob itself. If you use one, you own its site
+  terms, rate limits and account risk; ingest its output through the
+  jsonfile source and run the same verification gates as any other lead.
+  See docs/sources.md.
+- The designed PDF CV is generated locally by a small built-in renderer
+  (standard fonts, single column, real text) so ATS parsers can read it.
+  The Markdown CV remains the source of truth.
