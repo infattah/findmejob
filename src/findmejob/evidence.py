@@ -166,11 +166,16 @@ def decompose_requirement(requirement: str) -> list[tuple[str, bool]]:
     become a hard gap nor soften a hard clause beside it.
     """
     sentences = _bounded_clauses(requirement)
-    # Mixed language + tenure clauses contain independent hard constraints.
-    # Split only at the language/years boundary, not arbitrary "and" phrases.
-    if len(sentences) == 1 and _YEARS.search(requirement) and re.search(r"(?i)\b(?:fluent|native|bilingual|proficiency)\b", requirement):
-        atoms = [part.strip(" .;,") for part in re.split(r"(?i)\s+and\s+(?=\d|(?:fluent|native|bilingual|working|professional))", requirement) if part.strip()]
-        if len(atoms) > 1:
+    # Language and non-language hard gates must remain independent across the
+    # conjunctions commonly used in listings. Split only when each side keeps
+    # a recognizable hard marker. Unrecognized joins remain a single compound,
+    # which the language matcher refuses to early-return as strong.
+    if re.search(r"(?i)\b(?:fluent|native|bilingual|proficiency)\b", requirement):
+        atoms = [part.strip(" .;,") for part in re.split(
+            r"(?i)\s*(?:[&/;,]|\b(?:and|plus|as\s+well\s+as)\b)\s*",
+            requirement,
+        ) if part.strip(" .;,")]
+        if len(atoms) > 1 and all(_HARD.search(atom) for atom in atoms):
             return [(atom, False) for atom in atoms]
     if len(sentences) <= 1 and "," not in requirement and not _PREFERRED.search(requirement):
         return [(requirement.strip(" .;,"), False)]
@@ -357,60 +362,72 @@ def _domain_overlap(requirement: str, fragment: str) -> tuple[int, float]:
     return overlap, overlap / len(req_tokens)
 
 
-def _match_language(requirement: str, profile: Profile, hard: bool) -> RequirementMatch | None:
-    level_match = re.search(
-        r"(?i)\b(fluent|working proficiency|professional proficiency|native|bilingual)\b",
-        requirement,
-    )
-    if not level_match:
-        return None
-    level = level_match.group(1).lower()
-    # Accept ordinary orderings such as "spoken fluent English", "fluent in
-    # written English", and "English written and spoken fluent". The captured
-    # language remains next to the proficiency/modality phrase, avoiding a scan
-    # for arbitrary capitalized words elsewhere in a compound requirement.
-    modifier = r"(?:(?:both\s+)?(?:written|spoken)(?:\s+and\s+(?:written|spoken))?\s+)?"
-    leading = re.search(
-        rf"(?i)\b(?:{modifier})(?:fluent|working proficiency|professional proficiency|native|bilingual)"
-        rf"\s+(?:in\s+)?(?:{modifier})([a-z]+)\b",
-        requirement,
-    )
-    trailing = re.search(
-        rf"(?i)\b([a-z]+)\s+(?:{modifier})(?:fluent|working proficiency|professional proficiency|native|bilingual)\b",
-        requirement,
-    )
-    if leading:
-        language = leading.group(1).lower()
-    elif trailing:
-        language = trailing.group(1).lower()
-    else:
-        return None
-    required_mods = set(re.findall(r"(?i)\b(written|spoken)\b", requirement))
-    candidates: list[str] = []
-    for fragment in _profile_evidence_fragments(profile):
-        if not re.search(rf"(?i)\b{re.escape(language)}\b", fragment):
-            continue
-        if not re.search(
-            r"(?i)\b(fluent|working proficiency|professional proficiency|native|bilingual)\b",
-            fragment,
-        ):
-            continue
-        evidence_mods = set(re.findall(r"(?i)\b(written|spoken)\b", fragment))
-        # No evidence modality means explicit general proficiency and therefore
-        # covers both. Otherwise every required modality must be explicit. A
-        # general requirement also needs both modalities, not spoken-only or
-        # written-only evidence.
-        if evidence_mods:
-            expected = required_mods or {"written", "spoken"}
-            if not expected <= evidence_mods:
+_LANG_LEVEL = r"fluent|professional working proficiency|working proficiency|professional proficiency|native|bilingual"
+_LANG_MODS = r"(?:(?:both\s+)?(?:written|spoken)(?:\s+and\s+(?:written|spoken))?\s+)"
+_LANG_PATTERNS = (
+    # "spoken fluent English", "fluent in written English"
+    re.compile(rf"(?i)\b(?P<mods1>{_LANG_MODS})?(?P<level>{_LANG_LEVEL})\s+(?:in\s+)?(?P<mods2>{_LANG_MODS})?(?P<language>[a-z]+)\b"),
+    # "English written and spoken fluent", "English: fluent"
+    re.compile(rf"(?i)\b(?P<language>[a-z]+)\s*[-:]?\s*(?P<mods1>{_LANG_MODS})?(?P<level>{_LANG_LEVEL})\b"),
+)
+
+
+def _language_phrases(text: str) -> list[tuple[str, str, set[str], tuple[int, int]]]:
+    """Parse language, level, and modality from one locally bound phrase."""
+    found: list[tuple[str, str, set[str], tuple[int, int]]] = []
+    occupied: list[tuple[int, int]] = []
+    for pattern in _LANG_PATTERNS:
+        for match in pattern.finditer(text):
+            span = match.span()
+            if match.group("language").lower() in {"professional", "working", "written", "spoken", "both", "in"}:
                 continue
-        candidates.append(fragment)
-    evidence = candidates[0] if candidates else None
-    if not evidence:
+            if any(span[0] < end and start < span[1] for start, end in occupied):
+                continue
+            mods = set(re.findall(
+                r"(?i)\b(written|spoken)\b",
+                (match.groupdict().get("mods1") or "") + " "
+                + (match.groupdict().get("mods2") or ""),
+            ))
+            found.append((
+                match.group("language").lower(),
+                match.group("level").lower(),
+                mods,
+                span,
+            ))
+            occupied.append(span)
+    return sorted(found, key=lambda item: item[3][0])
+
+
+def _match_language(requirement: str, profile: Profile, hard: bool) -> RequirementMatch | None:
+    targets = _language_phrases(requirement)
+    if not targets:
+        return None
+    # Never let one recognized language phrase hide another hard constraint.
+    # Decomposition handles known conjunctions; any remaining text must be only
+    # harmless requirement wording/punctuation or the compound stays unresolved.
+    residual = requirement
+    for _, _, _, (start, end) in reversed(targets):
+        residual = residual[:start] + " " + residual[end:]
+    residual = re.sub(r"(?i)\b(?:must|required|requirement|language|proficiency|in)\b", " ", residual)
+    residual = re.sub(r"[\s:().,;/-]+", "", residual)
+    if residual or len(targets) != 1:
+        return None
+    language, level, required_mods, _ = targets[0]
+    candidates: list[tuple[str, str, set[str]]] = []
+    for fragment in _profile_evidence_fragments(profile):
+        for ev_language, ev_level, evidence_mods, _ in _language_phrases(fragment):
+            if ev_language != language:
+                continue
+            if evidence_mods:
+                expected = required_mods or {"written", "spoken"}
+                if not expected <= evidence_mods:
+                    continue
+            if level in {"native", "bilingual"} and ev_level not in {"native", "bilingual"}:
+                continue
+            candidates.append((fragment, ev_level, evidence_mods))
+    if not candidates:
         return RequirementMatch(requirement, "missing", [], hard)
-    low = evidence.lower()
-    if level in {"native", "bilingual"} and not re.search(r"\b(native|bilingual)\b", low):
-        return RequirementMatch(requirement, "missing", [], hard)
+    evidence = candidates[0][0]
     return RequirementMatch(
         requirement,
         "strong",

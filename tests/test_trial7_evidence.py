@@ -70,3 +70,66 @@ class LanguageModalityTests(unittest.TestCase):
         evidence = "English: written and spoken fluent."
         self.assertEqual("strong", self.status(evidence, "Fluent English"))
         self.assertEqual("strong", self.status(evidence, "Fluent in written and spoken English"))
+
+class MixedHardSeparatorRegressions(unittest.TestCase):
+    def report(self, req):
+        profile = Profile(summary="English: fluent professional proficiency. 2 years in growth marketing.")
+        return evaluate_requirements(profile, JobPosting(title="T", company="C", description="Requirements\n- " + req))
+
+    def test_all_separator_and_order_variants_preserve_both_constraints(self):
+        variants = (
+            "Fluent English / 5 years of growth marketing",
+            "5 years of growth marketing / Fluent English",
+            "Fluent English & 5 years of growth marketing",
+            "5 years of growth marketing & Fluent English",
+            "Fluent English plus 5 years of growth marketing.",
+            "5 years of growth marketing, plus Fluent English",
+            "Fluent English as well as 5 years of growth marketing;",
+            "5 years of growth marketing; as well as Fluent English",
+        )
+        for req in variants:
+            with self.subTest(req=req):
+                report = self.report(req)
+                self.assertTrue(any("5 years" in item.requirement and item.status != "strong" for item in report.items))
+                self.assertGreaterEqual(report.hard_missing, 1)
+
+    def test_unknown_conjunction_keeps_compound_unresolved(self):
+        report = self.report("Fluent English alongside 5 years of growth marketing")
+        self.assertEqual(0, report.strong)
+        self.assertGreaterEqual(report.hard_missing, 1)
+
+
+class MultiLanguageBindingRegressions(unittest.TestCase):
+    def status(self, evidence, requirement):
+        return evaluate_requirements(
+            Profile(summary=evidence),
+            JobPosting(title="T", company="C", description="Requirements\n- " + requirement),
+        ).items[0].status
+
+    def test_level_stays_bound_to_same_language(self):
+        variants = (
+            ("English fluent and Arabic native", "Native English"),
+            ("Arabic native; English fluent.", "Native English"),
+            ("English basic and Arabic fluent", "Fluent English"),
+            ("Arabic fluent / English basic", "Fluent English"),
+        )
+        for evidence, requirement in variants:
+            with self.subTest(evidence=evidence):
+                self.assertEqual("missing", self.status(evidence, requirement))
+
+    def test_modality_stays_bound_to_same_language(self):
+        variants = (
+            ("English spoken fluent; Arabic written fluent", "Written fluent English"),
+            ("Arabic written fluent, English spoken fluent", "Written fluent English"),
+            ("English written fluent / Arabic spoken fluent", "Spoken fluent English"),
+            ("Arabic spoken fluent and English written fluent", "Spoken fluent English"),
+            ("English spoken fluent; Arabic fluent professional proficiency", "Fluent English"),
+        )
+        for evidence, requirement in variants:
+            with self.subTest(evidence=evidence):
+                self.assertEqual("missing", self.status(evidence, requirement))
+
+    def test_general_same_language_evidence_covers_modalities(self):
+        evidence = "Arabic native; English fluent professional proficiency."
+        self.assertEqual("strong", self.status(evidence, "Written fluent English"))
+        self.assertEqual("strong", self.status(evidence, "Spoken fluent English"))
