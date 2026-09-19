@@ -25,15 +25,21 @@ _COMPANY_HISTORY_YEARS = re.compile(
     r"(?ix)(?:"
     r"^\s*(?:for|over|more\s+than)\s+\d{1,3}\s*(?:\+|plus)?\s*years?\s*,"
     r"|\b(?:founded|established)\s+\d{1,3}\s*(?:\+|plus)?\s*years?\s+ago\b"
-    r"|\b(?:we|the\s+company|our\s+(?:company|business|group|brand|platform)|"
-    r"[A-Z][\w&.-]+)\b.{0,45}\b(?:has|have|been|is|are|delivering|operating|"
-    r"serving|building|founded)\b.{0,30}\b(?:for|over|more\s+than)\s+"
-    r"\d{1,3}\s*(?:\+|plus)?\s*years?\b"
-    r"|\b(?:we|the\s+company|our\s+(?:company|business|group|brand|platform)|"
-    r"[A-Z][\w&.-]+)\b.{0,20}\b(?:has|have|brings?|boasts?)\s+"
-    r"\d{1,3}\s*(?:\+|plus)?\s*years?\s+of\s+experience\b"
+    # Company-history subjects are explicit organizations, never generic people
+    # or candidate pronouns. This keeps natural JD requirements intact.
+    r"|\b(?:we|the\s+(?:company|business|group|brand|platform|employer|organization)|"
+    r"our\s+(?:company|business|group|brand|platform|organization)|"
+    r"(?-i:[A-Z][\w&.-]+\s+[A-Z][\w&.-]+(?:\s+[A-Z][\w&.-]+){0,2})\b)"
+    r".{0,45}\b(?:has|have|been|is|are|delivering|operating|serving|building|founded)\b"
+    r".{0,30}\b(?:for|over|more\s+than)\s+\d{1,3}\s*(?:\+|plus)?\s*years?\b"
+    r"|\b(?:we|the\s+(?:company|business|group|brand|platform|employer|organization)|"
+    r"our\s+(?:company|business|group|brand|platform|organization)|"
+    r"(?-i:[A-Z][\w&.-]+\s+[A-Z][\w&.-]+(?:\s+[A-Z][\w&.-]+){0,2})\b)"
+    r".{0,20}\b(?:has|have|brings?|boasts?)\s+\d{1,3}\s*(?:\+|plus)?\s*years?"
+    r"\s+of\s+experience\b"
     r")"
 )
+
 _GENERIC_CAREER_YEARS = re.compile(
     r"(?i)\b\d{1,2}\s*(?:\+|plus)?\s*years?\s+(?:of\s+)?(?:professional |career |work )?experience\b"
 )

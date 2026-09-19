@@ -286,3 +286,48 @@ class TestTrialFourIndependentReviewPaymentBoundaries(unittest.TestCase):
         for description in ("We offer remittance services to consumers.", "Our platform facilitates foreign exchange for international businesses."):
             with self.subTest(description=description):
                 self.assertEqual(self.verdict("Growth Manager", "Transfer Co", description), "block")
+
+
+class TestFinalReviewPaymentAndHotelBoundaries(unittest.TestCase):
+    forex = {"sector_exclusions": ["forex trading"]}
+
+    def verdict(self, description, title="Role", company="Data Co", policy=None):
+        job = JobPosting(title=title, company=company, description=description)
+        return check_job(job, policy or self.forex).verdict
+
+    def test_canonical_payment_processors_block(self):
+        cases = (
+            "We process payment transactions for merchants across the region.",
+            "We are a payment processing company serving online merchants.",
+            "Our platform processes regulated payment transactions.",
+        )
+        for description in cases:
+            with self.subTest(description=description):
+                self.assertEqual(self.verdict(description, company="Transfer Co"), "block")
+
+    def test_neutral_transaction_analysis_both_word_orders(self):
+        cases = (
+            "We provide analytics for payment transactions to online retailers.",
+            "We publish measurement of payment transactions for merchants.",
+            "We deliver insights into payment transactions for retail teams.",
+            "We provide reporting on payment transactions to online retailers.",
+            "We measure customer payment transactions to improve checkout conversion.",
+        )
+        for description in cases:
+            with self.subTest(description=description):
+                self.assertEqual(self.verdict(description), "pass")
+
+    def test_processing_mention_as_customer_activity_is_neutral(self):
+        self.assertEqual(self.verdict(
+            "Our analytics client processes payment transactions for its own customers."), "pass")
+
+    def test_plural_hotel_business_blocks(self):
+        policy = {"sector_exclusions": ["hotel", "hospitality"]}
+        self.assertEqual(self.verdict(
+            "We operate hotels and resorts across the Gulf.", company="Stay Group", policy=policy), "block")
+
+    def test_software_for_plural_hotels_stays_neutral(self):
+        policy = {"sector_exclusions": ["hotel", "hospitality"]}
+        self.assertEqual(self.verdict(
+            "Our SaaS platform serves hotels and hospitality operators.",
+            company="Cloud Software Co", policy=policy), "pass")

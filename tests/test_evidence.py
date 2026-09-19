@@ -131,3 +131,27 @@ class TestIndependentReviewCompanyHistoryBoundaries(unittest.TestCase):
         for text in descriptions:
             with self.subTest(text=text):
                 self.assertTrue(extract_requirements(text))
+
+
+class TestFinalReviewCandidateHistoryBoundary(unittest.TestCase):
+    def test_natural_candidate_requirements_survive_history_filter(self):
+        requirements = (
+            "The ideal candidate has 4+ years of experience in growth marketing.",
+            "The successful candidate has 5+ years of experience in paid media.",
+            "The right person has 6+ years of experience in digital marketing.",
+            "You have 4+ years of experience in performance marketing.",
+            "Candidate must have 5 years of experience in growth marketing.",
+        )
+        for requirement in requirements:
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, extract_requirements(requirement))
+
+    def test_explicit_company_subjects_remain_history(self):
+        histories = (
+            "Our business has 14 years of experience serving merchants.",
+            "The company has operated for over 20 years.",
+            "Delivery Hero has 18 years of experience serving merchants.",
+        )
+        for history in histories:
+            with self.subTest(history=history):
+                self.assertEqual(extract_requirements(history), [])

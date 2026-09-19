@@ -79,7 +79,10 @@ not accepted as proof of a hard requirement.
 Years-of-experience checks keep the number tied to its CV context. For a requirement
 such as `5+ years of B2B SaaS demand generation`, an unrelated `9+ years in retail`
 does not pass. A strong match needs a sufficient duration and matching domain terms
-in the same CV fact. If the CV clearly shows the domain but does not state a duration
+in the same CV fact. The matcher uses a conservative equivalence only for established
+performance-marketing wording such as paid media and paid acquisition. It does not treat
+generic digital marketing as equivalent to performance marketing without additional
+matching evidence. If the CV clearly shows the domain but does not state a duration
 there, the evidence is `partial` rather than discarded; hard requirements then pause
 for user review. Generic years-only requirements can still use an explicit overall
 years statement.

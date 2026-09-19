@@ -56,18 +56,28 @@ _PROVIDER_CUSTOMER_CONTEXT = re.compile(
 )
 _FOREX_RESTRICTED_PHRASE = (
     r"\b(?:foreign exchange|fx|cross[- ]border payments?|currency (?:exchange|conversion)|"
-    r"remittances?|payment transactions?)\b"
+    r"remittances?|payment transactions?|payment processing)\b"
 )
 _FOREX_BUSINESS_NOUN = r"\b(?:compan(?:y|ies)|business(?:es)?|fintechs?|platforms?|providers?|services?|networks?)\b"
 _PAYMENT_TRANSACTION_ANALYTICS = re.compile(
-    r"\bpayment transactions?\s+(?:analytics?|analysis|reporting|measurement|metrics?|insights?|data)\b",
+    # Neutral analysis of transactions, in either natural word order. Keep the
+    # transaction object out of provider classification without weakening real
+    # processing/facilitation signals.
+    r"\b(?:payment transactions?\s+(?:analytics?|analysis|reporting|measurement|metrics?|insights?|data)"
+    r"|(?:analytics?|analysis|reporting|measurement|metrics?|insights?|data)\s+"
+    r"(?:for|of|into|on|about)\s+payment transactions?)\b",
+    re.I,
+)
+_PAYMENT_CUSTOMER_PROCESSING = re.compile(
+    r"\b(?:clients?|customers?|merchants?|retailers?)\b.{0,50}"
+    r"\bprocess(?:es|ing)?\s+payment transactions?\b",
     re.I,
 )
 _FOREX_BUSINESS_CONTEXT = re.compile(
     # business noun + offering verb + restricted phrase
     r"\b(?:company|business|fintech|platform|provider|service|network|we|our)\b.{0,100}"
     r"\b(?:provides?|offers?|speciali[sz](?:es|ing)|enables?|facilitates?|powers?|"
-    r"operates?|delivers?|built for|focused on)\b.{0,80}"
+    r"operates?|delivers?|process(?:es|ing)?|built for|focused on)\b.{0,80}"
     + _FOREX_RESTRICTED_PHRASE + "|"
     # business noun + for/of + restricted phrase ("provider for foreign exchange")
     + _FOREX_BUSINESS_NOUN + r"\s+(?:for|of)\s+" + _FOREX_RESTRICTED_PHRASE + "|"
@@ -104,7 +114,7 @@ def _sector_match(job: JobPosting, configured: str) -> str | None:
             elif phrase == "remittance":
                 pattern = r"(?<![a-z0-9])remittances?(?![a-z0-9])"
             elif phrase == "payment transaction":
-                pattern = r"(?<![a-z0-9])payment transactions?(?![a-z0-9])"
+                pattern = r"(?<![a-z0-9])(?:payment transactions?|payment processing)(?![a-z0-9])"
             else:
                 pattern = r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])"
             # A job title can name a product without identifying the employer's
@@ -118,16 +128,21 @@ def _sector_match(job: JobPosting, configured: str) -> str | None:
                 # payment transaction analytics" cannot become "provide payment
                 # transactions".
                 business_text = _PAYMENT_TRANSACTION_ANALYTICS.sub("transaction analytics", text)
+                business_text = _PAYMENT_CUSTOMER_PROCESSING.sub("customer activity", business_text)
                 contextual = re.search(pattern, business_text) and _FOREX_BUSINESS_CONTEXT.search(business_text)
                 if company_identity or contextual:
                     return phrase
             elif identity_match or (re.search(pattern, text) and _FOREX_BUSINESS_CONTEXT.search(text)):
                 return phrase
         return None
-    direct_hotel_identity = bool(re.search(r"\b(?:hotel|resort|lodging|hospitality)\b", identity))
+    direct_hotel_identity = bool(re.search(r"\b(?:hotels?|resorts?|lodging|hospitality)\b", identity))
     provider_customer = bool(_TECH_PROVIDER.search(text) and _PROVIDER_CUSTOMER_CONTEXT.search(text))
     for phrase in candidates:
-        if not re.search(r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])", text):
+        if phrase in {"hotel", "resort"}:
+            phrase_pattern = r"(?<![a-z0-9])" + re.escape(phrase) + r"s?(?![a-z0-9])"
+        else:
+            phrase_pattern = r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])"
+        if not re.search(phrase_pattern, text):
             continue
         if needle in {"hotel", "hospitality"} and not direct_hotel_identity and provider_customer:
             continue
