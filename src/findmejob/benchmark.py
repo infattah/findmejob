@@ -98,8 +98,10 @@ def main(argv=None) -> int:
     import argparse
     parser = argparse.ArgumentParser(description="Run a labeled qualification benchmark")
     parser.add_argument("fixture")
+    parser.add_argument("--replay", action="store_true", help="derive signals through the real adapter before scoring")
     args = parser.parse_args(argv)
-    print(json.dumps(run_benchmark(args.fixture).to_dict(), indent=2))
+    runner = run_replay_benchmark if args.replay else run_benchmark
+    print(json.dumps(runner(args.fixture).to_dict(), indent=2))
     return 0
 
 

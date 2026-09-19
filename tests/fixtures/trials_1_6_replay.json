@@ -1,0 +1,259 @@
+[
+  {
+    "id": "t1-unverified",
+    "expected": "insufficient_evidence",
+    "job": {
+      "title": "Growth Marketing Manager",
+      "company": "Acme",
+      "location": "Dubai",
+      "description": "Requirements\n- 5+ years in marketing"
+    },
+    "profile": {
+      "summary": "7+ years in marketing"
+    },
+    "role_keywords": [
+      "growth marketing"
+    ],
+    "liveness": "alive",
+    "zero_tolerance": true
+  },
+  {
+    "id": "t2-expired",
+    "expected": "stale",
+    "job": {
+      "title": "Marketing Manager",
+      "company": "Acme",
+      "description": "Requirements\n- 5+ years in marketing"
+    },
+    "profile": {
+      "summary": "7+ years in marketing"
+    },
+    "role_keywords": [
+      "marketing manager"
+    ],
+    "liveness": "expired",
+    "zero_tolerance": true
+  },
+  {
+    "id": "t3-function",
+    "expected": "reject",
+    "job": {
+      "title": "Solutions Engineer",
+      "company": "Acme",
+      "description": "Responsibilities\nBuild technical solutions and run demos for prospects\nRequirements\n- 5+ years in solutions engineering"
+    },
+    "profile": {
+      "summary": "7+ years in marketing"
+    },
+    "role_keywords": [
+      "marketing manager"
+    ],
+    "liveness": "alive",
+    "verification": {
+      "company": "Acme",
+      "status": "verified",
+      "official_domain": "acme.example",
+      "evidence": [
+        {
+          "kind": "official_website",
+          "url": "https://acme.example"
+        },
+        {
+          "kind": "linkedin",
+          "url": "https://linkedin.com/company/acme"
+        },
+        {
+          "kind": "ats",
+          "url": "https://jobs.example/acme"
+        }
+      ]
+    }
+  },
+  {
+    "id": "t4-policy",
+    "expected": "reject",
+    "job": {
+      "title": "Growth Manager",
+      "company": "FX Trading Co",
+      "description": "We operate a forex trading platform. Requirements\n- 5+ years in marketing"
+    },
+    "profile": {
+      "summary": "7+ years in marketing"
+    },
+    "role_keywords": [
+      "growth manager"
+    ],
+    "policy": {
+      "sector_exclusions": [
+        "forex trading"
+      ]
+    },
+    "liveness": "alive",
+    "verification": {
+      "company": "FX Trading Co",
+      "status": "verified",
+      "official_domain": "fxtradingco.example",
+      "evidence": [
+        {
+          "kind": "official_website",
+          "url": "https://fxtradingco.example"
+        },
+        {
+          "kind": "linkedin",
+          "url": "https://linkedin.com/company/fxtradingco"
+        },
+        {
+          "kind": "ats",
+          "url": "https://jobs.example/fxtradingco"
+        }
+      ]
+    },
+    "zero_tolerance": true
+  },
+  {
+    "id": "t5-domain",
+    "expected": "reject",
+    "job": {
+      "title": "Marketing Manager",
+      "company": "Cyber Co",
+      "description": "Responsibilities\nLead campaigns\nRequirements\n- 6+ years in B2B cybersecurity marketing"
+    },
+    "profile": {
+      "summary": "7+ years in marketing overall"
+    },
+    "role_keywords": [
+      "marketing manager"
+    ],
+    "liveness": "alive",
+    "verification": {
+      "company": "Cyber Co",
+      "status": "verified",
+      "official_domain": "cyberco.example",
+      "evidence": [
+        {
+          "kind": "official_website",
+          "url": "https://cyberco.example"
+        },
+        {
+          "kind": "linkedin",
+          "url": "https://linkedin.com/company/cyberco"
+        },
+        {
+          "kind": "ats",
+          "url": "https://jobs.example/cyberco"
+        }
+      ]
+    }
+  },
+  {
+    "id": "t6-mcsaatchi",
+    "expected": "strong",
+    "job": {
+      "title": "Marketing Manager",
+      "company": "M+C Saatchi",
+      "location": "Dubai",
+      "description": "Responsibilities\nLead marketing campaigns and analytics\nABOUT YOU\n- 4-6+ years' experience in marketing"
+    },
+    "profile": {
+      "summary": "Performance marketer with 7+ years in marketing overall",
+      "skills": [
+        "analytics"
+      ]
+    },
+    "role_keywords": [
+      "marketing manager"
+    ],
+    "liveness": "alive",
+    "verification": {
+      "company": "M+C Saatchi",
+      "status": "verified",
+      "official_domain": "mcsaatchi.example",
+      "evidence": [
+        {
+          "kind": "official_website",
+          "url": "https://mcsaatchi.example"
+        },
+        {
+          "kind": "linkedin",
+          "url": "https://linkedin.com/company/mcsaatchi"
+        },
+        {
+          "kind": "ats",
+          "url": "https://jobs.example/mcsaatchi"
+        }
+      ]
+    }
+  },
+  {
+    "id": "t6-lndmrk",
+    "expected": "strong",
+    "job": {
+      "title": "Marketing Lead",
+      "company": "Lndmrk",
+      "location": "Dubai",
+      "description": "Responsibilities\nOwn demand generation, pipeline, attribution, CAC and LTV\nRequirements\n- 6-10+ years in marketing\nPreferred\n- Experience in proptech or SaaS"
+    },
+    "profile": {
+      "summary": "Performance marketer with 7+ years in marketing overall. Demand generation, pipeline, attribution, CAC and LTV."
+    },
+    "role_keywords": [
+      "marketing lead"
+    ],
+    "liveness": "alive",
+    "verification": {
+      "company": "Lndmrk",
+      "status": "verified",
+      "official_domain": "lndmrk.example",
+      "evidence": [
+        {
+          "kind": "official_website",
+          "url": "https://lndmrk.example"
+        },
+        {
+          "kind": "linkedin",
+          "url": "https://linkedin.com/company/lndmrk"
+        },
+        {
+          "kind": "ats",
+          "url": "https://jobs.example/lndmrk"
+        }
+      ]
+    }
+  },
+  {
+    "id": "t6-vidrush",
+    "expected": "strong",
+    "job": {
+      "title": "Marketing Manager",
+      "company": "VidRush",
+      "location": "Dubai",
+      "description": "About us\nAI-native video production platform.\nResponsibilities\nLead paid media, growth and analytics\nRequirements\n- 3-7 years in performance or growth marketing\nDesirable\n- SaaS familiarity"
+    },
+    "profile": {
+      "summary": "Performance marketer with 7+ years in marketing overall. Paid media, growth and analytics."
+    },
+    "role_keywords": [
+      "marketing manager"
+    ],
+    "liveness": "alive",
+    "verification": {
+      "company": "VidRush",
+      "status": "verified",
+      "official_domain": "vidrush.example",
+      "evidence": [
+        {
+          "kind": "official_website",
+          "url": "https://vidrush.example"
+        },
+        {
+          "kind": "linkedin",
+          "url": "https://linkedin.com/company/vidrush"
+        },
+        {
+          "kind": "ats",
+          "url": "https://jobs.example/vidrush"
+        }
+      ]
+    }
+  }
+]

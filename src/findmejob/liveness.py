@@ -29,7 +29,7 @@ EXPIRY_MARKERS = [
     "applications for the role have closed", "applications for the job have closed",
     "applications have closed", "applications are now closed", "applications are closed",
     "applications closed", "vacancy has expired", "vacancy expired",
-    "job has been removed",
+    "job has been removed", "this position is no longer active",
 ]
 
 Opener = Callable[[str, int], tuple[int, str]]
@@ -70,3 +70,16 @@ def check_listing(url: str, opener: Optional[Opener] = None,
         if marker in low:
             return "alive", f"page says: {marker}"
     return "unknown", f"HTTP {status} only; no explicit open/apply evidence"
+
+
+def check_job_liveness(job, opener: Optional[Opener] = None, timeout: int = 15) -> tuple[str, str]:
+    """Prefer conservative structured source evidence, then inspect the public page.
+
+    Source adapters may provide only explicit public ATS fields. Alive requires both an
+    affirmative listing flag and an apply URL; a missing field remains unknown.
+    """
+    hint = getattr(job, "source_liveness", "")
+    detail = getattr(job, "source_liveness_detail", "")
+    if hint in {"alive", "expired"} and detail:
+        return hint, detail
+    return check_listing(getattr(job, "url", ""), opener=opener, timeout=timeout)

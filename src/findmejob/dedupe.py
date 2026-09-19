@@ -14,6 +14,7 @@ alternate source and URL so every verified route stays reachable.
 from __future__ import annotations
 
 import re
+from difflib import SequenceMatcher
 from typing import Iterable, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -81,14 +82,33 @@ def signatures_match(a: tuple[str, str, str], b: tuple[str, str, str]) -> bool:
     return True
 
 
+def _description_similarity(a: str, b: str) -> float:
+    def clean(text: str) -> str:
+        return " ".join(_norm(text).split())
+    left, right = clean(a), clean(b)
+    if len(left) < 120 or len(right) < 120:
+        return 0.0
+    return SequenceMatcher(None, left, right, autojunk=False).ratio()
+
+
+def _wrapper_duplicate(job: JobPosting, other: JobPosting) -> bool:
+    # Recruiter/client wrappers often change only the displayed company and URL.
+    # Require the same normalized title/location plus near-identical substantive copy.
+    a, b = signature(job), signature(other)
+    if not a[1] or a[1] != b[1]: return False
+    if a[2] and b[2] and a[2] != b[2]: return False
+    return _description_similarity(job.description, other.description) >= .88
+
+
 def find_duplicate(job: JobPosting, candidates: Iterable[JobPosting]) -> Optional[JobPosting]:
     """Return the first candidate that is the same role, or None."""
-    url = canonical_url(job.url)
+    urls = {canonical_url(job.url), canonical_url(getattr(job, "apply_url", ""))} - {""}
     sig = signature(job)
     for other in candidates:
-        if url and canonical_url(other.url) == url:
+        other_urls = {canonical_url(other.url), canonical_url(getattr(other, "apply_url", ""))} - {""}
+        if urls & other_urls:
             return other
-        if signatures_match(sig, signature(other)):
+        if signatures_match(sig, signature(other)) or _wrapper_duplicate(job, other):
             return other
     return None
 

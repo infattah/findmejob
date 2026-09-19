@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from ..config import Config
-from ..liveness import check_listing
+from ..liveness import check_job_liveness
 from ..pipeline import load_profile, run_search, run_tailor, run_triage
 from ..tracker import Tracker
 from .contracts import AgentResult
@@ -45,7 +45,7 @@ def _verify(payload: dict, cfg: Config, tracker: Tracker) -> AgentResult:
     # Use the same conservative GET/body check as the CLI. A reachable page
     # is not necessarily an open role: explicit closure text wins, ambiguous
     # HTTP failures stay unknown, and alive requires substantive apply evidence.
-    liveness, detail = check_listing(job.url)
+    liveness, detail = check_job_liveness(job)
     tracker.set_liveness(job_id, liveness, detail)
     tri = run_triage(cfg, tracker, job_id=job_id)
     decision = tracker.qualification(job_id).get("decision")

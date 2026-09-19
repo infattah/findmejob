@@ -9,7 +9,8 @@ from .models import JobPosting, Profile
 
 _BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
 _REQ_HEADER = re.compile(r"(requirements|qualifications|what you'?ll need|what we'?re looking for|who you are|about you|must[- ]haves?|you have|you bring)", re.I)
-_SECTION_HEADER = re.compile(r"(responsibilities|what you'?ll do|about the role|about us|benefits|perks|nice[- ]to[- ]haves?|preferred)", re.I)
+_SECTION_HEADER = re.compile(r"(responsibilities|what you'?ll do|about the role|about us|about (?:the )?company|company overview|benefits|perks)", re.I)
+_PREFERRED_HEADER = re.compile(r"(nice[- ]to[- ]haves?|preferred|desirable|bonus|what would amaze us|good to have)", re.I)
 _TOKEN = re.compile(r"[a-z][a-z0-9+#.]{2,}")
 _YEARS = re.compile(r"(?<!\d)(\d{1,2})\s*(?:\+|plus)?\s*years?", re.I)
 _HARD = re.compile(r"\b(must|required|requires?|minimum|at least|fluent|native|proficien(?:t|cy)|\d+\s*(?:\+|plus)?\s*years?|senior|head of|director|b2b|saas)\b", re.I)
@@ -17,7 +18,7 @@ _STOP = {"the", "and", "for", "with", "you", "your", "our", "are", "will", "that
 
 
 _YEARS_AND = re.compile(r"(\d{1,2}\s*(?:\+|plus)?\s*years?(?:\s+(?:of|in)\s+\w+)*?)\s+and\s+", re.I)
-_PREFERRED = re.compile(r"\b(nice[- ]to[- ]have|good[- ]to[- ]have|preferred|a plus|bonus|advantage)\b", re.I)
+_PREFERRED = re.compile(r"\b(nice[- ]to[- ]have|good[- ]to[- ]have|preferred|desirable|a plus|bonus|advantage)\b", re.I)
 _REQ_MARKER = re.compile(r"(requires?|must|years?|experience|proficien\w*|degree|bachelor|master|diploma|fluent|native|certif\w*|knowledge|familiar\w*|expert\w*|ability to|skilled|skills)\b", re.I)
 _GENERIC_YEAR = {"requires", "require", "required", "minimum"}
 _DOMAIN_CUE = re.compile(r"(expertise|experience|knowledge|background|track record|domain)", re.I)
@@ -49,7 +50,7 @@ _COMPANY_HISTORY_YEARS = re.compile(
 )
 
 _GENERIC_CAREER_YEARS = re.compile(
-    r"(?i)\b\d{1,2}\s*(?:\+|plus)?\s*years?\s+(?:of\s+)?(?:professional |career |work )?experience\b"
+    r"(?i)\b\d{1,2}\s*(?:\+|plus)?\s*years?\s+(?:(?:of\s+)?(?:professional |career |work )?experience|in marketing)\b"
 )
 _DOMAIN_EQUIVALENTS = (
     frozenset({"performance", "paid", "acquisition", "media"}),
@@ -71,36 +72,36 @@ def _tokens(text: str) -> set[str]:
 
 
 def extract_requirements(description: str, max_items: int = 12) -> list[str]:
-    if not description:
-        return []
-    lines = [line.strip() for line in description.splitlines() if line.strip()]
-    reqs: list[str] = []
-    in_req = False
+    """Extract candidate requirements and retain preferred-section modality."""
+    if not description: return []
+    lines=[line.strip() for line in description.splitlines() if line.strip()]
+    reqs=[]; mode="other"
     for line in lines:
-        if _REQ_HEADER.search(line) and len(line) < 120:
-            in_req = True
-            continue
-        if _SECTION_HEADER.search(line) and len(line) < 120:
-            in_req = False
-            continue
-        text = _BULLET.sub("", line).strip() if _BULLET.match(line) else line
-        looks_like = in_req or any(x in text.lower() for x in ("year", "experience", "proficien", "degree", "skill", "knowledge", "familiar", "expert", "fluent", "native", "certif", "bachelor", "master", "diploma", "ability to", "required"))
-        if looks_like and 12 <= len(text) <= 300 and not _COMPANY_HISTORY_YEARS.search(text):
+        is_bullet=bool(_BULLET.match(line))
+        # Headers must be actual short labels, not prose that happens to contain
+        # words such as "experience" or "preferred".
+        if not is_bullet and len(line) < 80 and _PREFERRED_HEADER.fullmatch(line.rstrip(": ")):
+            mode="preferred"; continue
+        if not is_bullet and len(line) < 80 and _REQ_HEADER.fullmatch(line.rstrip(": ")):
+            mode="required"; continue
+        if not is_bullet and len(line) < 80 and _SECTION_HEADER.fullmatch(line.rstrip(": ")):
+            mode="excluded"; continue
+        text=_BULLET.sub("",line).strip() if is_bullet else line
+        looks_like=any(x in text.lower() for x in ("year","experience","proficien","degree","skill","knowledge","familiar","expert","fluent","native","certif","bachelor","master","diploma","ability to","required"))
+        if mode in {"required","preferred"} and 12 <= len(text) <= 300 and not _COMPANY_HISTORY_YEARS.search(text):
+            reqs.append(("preferred: " if mode=="preferred" else "")+text)
+        elif mode == "other" and looks_like and 12 <= len(text) <= 300 and not _COMPANY_HISTORY_YEARS.search(text) and _REQ_MARKER.search(text):
+            # Preserve legacy unheaded explicit requirements, but reject company
+            # blurbs: they must contain an actual candidate requirement marker.
             reqs.append(text)
     if not reqs:
-        for sent in re.split(r"(?<=[.!?])\s+", description):
-            if (_YEARS.search(sent) and 12 <= len(sent) <= 300
-                    and not _COMPANY_HISTORY_YEARS.search(sent)):
-                reqs.append(sent.strip())
-    seen: set[str] = set()
-    out: list[str] = []
+        for sent in re.split(r"(?<=[.!?])\s+",description):
+            if _YEARS.search(sent) and 12 <= len(sent) <= 300 and not _COMPANY_HISTORY_YEARS.search(sent) and re.search(r"(?i)\b(?:you|candidate|applicant|required|qualification|experience)\b",sent): reqs.append(sent.strip())
+    seen=set(); out=[]
     for req in reqs:
-        key = _dedupe_key(req)
-        if key not in seen:
-            seen.add(key)
-            out.append(req)
-        if len(out) >= max_items:
-            break
+        key=_dedupe_key(req)
+        if key not in seen: seen.add(key); out.append(req)
+        if len(out)>=max_items: break
     return out
 
 
@@ -150,7 +151,7 @@ def _preferred_clause(text: str) -> tuple[str, bool]:
     not soften a hard years or skill clause sharing the same sentence.
     """
     preferred = bool(_PREFERRED.search(text))
-    return _PREFERRED.sub("", text).strip(" .;,"), preferred
+    return _PREFERRED.sub("", text).strip(" .;,:-"), preferred
 
 
 def decompose_requirement(requirement: str) -> list[tuple[str, bool]]:
@@ -262,6 +263,13 @@ def _max_years(text: str) -> int | None:
     return max(values) if values else None
 
 
+def _required_years(text: str) -> int | None:
+    range_match = re.search(r"(?<!\d)(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*(?:\+|plus)?\s*years?", text, re.I)
+    if range_match:
+        return int(range_match.group(1))
+    return _max_years(text)
+
+
 def _bounded_clauses(text: str) -> list[str]:
     """Split prose where separate claims stop sharing evidence context."""
     return [part.strip() for part in re.split(r"(?<=[.!?;])\s+|[;]", text)
@@ -346,7 +354,7 @@ def _domain_overlap(requirement: str, fragment: str) -> tuple[int, float]:
 
 def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
     hard = is_hard_requirement(requirement)
-    req_years = _max_years(requirement)
+    req_years = _required_years(requirement)
     if req_years is not None:
         fragments = _profile_evidence_fragments(profile)
         domain_terms = _year_domain_tokens(requirement)
