@@ -16,6 +16,13 @@ _HARD = re.compile(r"\b(must|required|requires?|minimum|at least|fluent|native|p
 _STOP = {"the", "and", "for", "with", "you", "your", "our", "are", "will", "that", "this", "have", "has", "from", "who", "what", "ability", "strong", "experience", "experienced", "years", "year", "work", "working", "team", "skills", "skill", "knowledge", "plus", "etc", "role", "job", "must", "should", "least", "related", "field", "equivalent", "proven", "track", "record", "familiarity", "understanding", "including", "such", "like", "able"}
 
 
+_YEARS_AND = re.compile(r"(\d{1,2}\s*(?:\+|plus)?\s*years?(?:\s+(?:of|in)\s+\w+)*?)\s+and\s+", re.I)
+_PREFERRED = re.compile(r"\b(nice[- ]to[- ]have|good[- ]to[- ]have|preferred|a plus|bonus|advantage)\b", re.I)
+_REQ_MARKER = re.compile(r"(requires?|must|years?|experience|proficien\w*|degree|bachelor|master|diploma|fluent|native|certif\w*|knowledge|familiar\w*|expert\w*|ability to|skilled|skills)\b", re.I)
+_GENERIC_YEAR = {"requires", "require", "required", "minimum"}
+_DOMAIN_CUE = re.compile(r"(expertise|experience|knowledge|background|track record|domain)", re.I)
+
+
 def _tokens(text: str) -> set[str]:
     # Period is valid inside tokens such as framework names, but sentence-final
     # punctuation must not turn "experience." into a fake domain term.
@@ -52,13 +59,124 @@ def extract_requirements(description: str, max_items: int = 12) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     for req in reqs:
-        key = " ".join(sorted(_tokens(req)))[:200] or req.lower()
+        key = _dedupe_key(req)
         if key not in seen:
             seen.add(key)
             out.append(req)
         if len(out) >= max_items:
             break
     return out
+
+
+
+
+def _dedupe_key(text: str) -> str:
+    # Include numeric thresholds so different seniority gates ("Requires 2+
+    # years" vs "Requires 5+ years") stay distinct; a token-only key collapses
+    # them because digits are not tokens.
+    parts = sorted(_tokens(text)) + sorted(_YEARS.findall(text))
+    return " ".join(parts)[:200] or text.lower()
+
+def _year_head(clause: str) -> str:
+    """Keep only the words that directly modify a years phrase.
+
+    Comma lists ("Requires 2+ years, Google Ads, ...") and "N years and X"
+    tails name independent clauses, not the domain of the years themselves.
+    """
+    head = clause.split(",", 1)[0]
+    match = _YEARS_AND.search(head)
+    if match:
+        head = head[:match.end(1)]
+    return head
+
+
+def _list_atoms(sentence: str) -> list[str]:
+    """Return comma/"and" list atoms after the years head of a sentence."""
+    if "," in sentence:
+        rest = sentence.split(",", 1)[1]
+        atoms = [part.strip(" .;,") for part in rest.split(",")]
+    else:
+        match = _YEARS_AND.search(sentence.split(",", 1)[0])
+        if not match:
+            return []
+        atoms = [sentence[match.end():].strip(" .;,")]
+    if atoms and re.search(r"\s+and\s+", atoms[-1], re.I):
+        tail = atoms.pop()
+        atoms.extend(part.strip(" .;,") for part in re.split(r"\s+and\s+", tail, flags=re.I))
+    return [atom for atom in atoms if _tokens(atom)]
+
+
+def _preferred_clause(text: str) -> tuple[str, bool]:
+    """Return (clean text, preferred) for a single clause or list atom.
+
+    "good to have" wording belongs to the clause or atom that carries it,
+    never to the whole comma sentence: a tail like "MBA good to have" must
+    not soften a hard years or skill clause sharing the same sentence.
+    """
+    preferred = bool(_PREFERRED.search(text))
+    return _PREFERRED.sub("", text).strip(" .;,"), preferred
+
+
+def decompose_requirement(requirement: str) -> list[tuple[str, bool]]:
+    """Split a compound requirement into independently checkable clauses.
+
+    Returns (text, preferred) pairs. A years phrase stays bound to domain
+    words in its own clause head and to an adjacent requirement sentence, but
+    comma-list atoms and "years and ..." tails become standalone items so each
+    is checked against its own CV evidence. Preferred status is decided per
+    clause or atom, never per sentence, so a "good to have" tail can neither
+    become a hard gap nor soften a hard clause beside it.
+    """
+    sentences = _bounded_clauses(requirement)
+    if len(sentences) <= 1 and "," not in requirement and not _PREFERRED.search(requirement):
+        return [(requirement.strip(" .;,"), False)]
+    items: list[tuple[str, bool]] = []
+    consumed: set[int] = set()
+    for idx, sent in enumerate(sentences):
+        if idx in consumed:
+            continue
+        if _YEARS.search(sent):
+            head = _year_head(sent).strip(" .;,")
+            generic = not (_tokens(_YEARS.sub("", head)) - _GENERIC_YEAR)
+            if generic:
+                carry_idx = next((j for j, other in enumerate(sentences)
+                                  if j != idx and _DOMAIN_CUE.search(other)
+                                  and not _PREFERRED.search(other)), None)
+                if carry_idx is not None:
+                    # A generic "N years of experience" sentence shares its
+                    # domain with an adjacent experience-domain sentence
+                    # ("B2B SaaS demand generation expertise required"); keep
+                    # them together so the years gate stays domain-bound.
+                    # Independent qualifications (degrees, languages) are not
+                    # carry sources and decompose into their own clauses.
+                    items.append((requirement, False))
+                    consumed.update(j for j, other in enumerate(sentences)
+                                    if _DOMAIN_CUE.search(other) and not _PREFERRED.search(other))
+                    continue
+            # Emit the years clause (its head keeps the domain words that
+            # directly modify the years) and each independent tail atom, each
+            # with its own preferred status.
+            head_clean, head_preferred = _preferred_clause(head)
+            items.append((head_clean, head_preferred))
+            for atom in _list_atoms(sent):
+                clean, atom_preferred = _preferred_clause(atom)
+                if clean and _tokens(clean):
+                    items.append((clean, atom_preferred))
+        else:
+            if _PREFERRED.search(sent) and "," in sent:
+                # A preferred tail sharing a comma sentence with a hard clause
+                # ("B2B SaaS experience required, MBA good to have") must not
+                # soften the hard clause: split and judge each atom on its own.
+                atoms = [part.strip(" .;,") for part in sent.split(",")]
+            else:
+                atoms = [sent]
+            for atom in atoms:
+                clean, preferred = _preferred_clause(atom)
+                if not (_REQ_MARKER.search(clean) or preferred):
+                    continue
+                if clean and _tokens(clean):
+                    items.append((clean, preferred))
+    return items or [(requirement, False)]
 
 
 def is_hard_requirement(requirement: str) -> bool:
@@ -71,9 +189,10 @@ class RequirementMatch:
     status: str
     evidence: list[str] = field(default_factory=list)
     hard: bool = False
+    preferred: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return {"requirement": self.requirement, "status": self.status, "evidence": self.evidence, "hard": self.hard}
+        return {"requirement": self.requirement, "status": self.status, "evidence": self.evidence, "hard": self.hard, "preferred": self.preferred}
 
 
 @dataclass
@@ -139,20 +258,21 @@ def _profile_evidence_fragments(profile: Profile) -> list[str]:
 
 
 def _year_domain_tokens(requirement: str) -> set[str]:
-    # Bind years to their own clause when it names a domain. If that clause is
-    # generic ("5+ years of experience"), carry the domain from the adjacent
-    # requirement sentence so split wording remains one domain-specific gate.
+    # Bind years to the domain words that directly modify them. Comma-list
+    # atoms and "years and ..." tails are independent clauses, not modifiers.
+    # If the head is generic ("5+ years of experience"), carry the domain from
+    # an adjacent requirement sentence so split wording remains one
+    # domain-specific gate; responsibilities or blurb sentences never carry.
     clauses = _bounded_clauses(requirement)
     year_clause = next((part for part in clauses if _YEARS.search(part)), requirement)
-    generic = {"requires", "require", "required", "minimum"}
-    year_tokens = _tokens(_YEARS.sub("", year_clause)) - generic
+    year_tokens = _tokens(_YEARS.sub("", _year_head(year_clause))) - _GENERIC_YEAR
     if year_tokens:
         return year_tokens
     adjacent_tokens: set[str] = set()
     for clause in clauses:
-        if clause != year_clause:
+        if clause != year_clause and _DOMAIN_CUE.search(clause) and not _PREFERRED.search(clause):
             adjacent_tokens.update(_tokens(clause))
-    return adjacent_tokens - generic
+    return adjacent_tokens - _GENERIC_YEAR
 
 
 def _grounded_domain(requirement: str, fragment: str) -> bool:
@@ -213,6 +333,11 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
         skill_tokens = _tokens(skill)
         if skill_tokens and skill_tokens <= req_tokens:
             return RequirementMatch(requirement, "strong", [f"skill: {skill}"], hard)
+    # A short decomposed clause is proven when every one of its content tokens
+    # appears in a single bounded CV fragment.
+    for fragment in _profile_evidence_fragments(profile):
+        if req_tokens <= _tokens(fragment):
+            return RequirementMatch(requirement, "strong", [f"evidence: {fragment[:160]}"], hard)
     best: tuple[int, str] = (0, "")
     for exp in profile.experiences:
         for bullet in [exp.role + " " + exp.company] + exp.bullets:
@@ -227,9 +352,36 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
     return RequirementMatch(requirement, "missing", [], hard)
 
 
-def evaluate_requirements(profile: Profile, job: JobPosting) -> FitReport:
+def evaluate_requirements(profile: Profile, job: JobPosting, max_items: int = 40) -> FitReport:
+    """Evaluate every extracted requirement against bounded CV evidence.
+
+    max_items bounds reported soft detail only: it can never hide a hard
+    requirement or leave an extracted requirement without a single evaluated
+    item. Pathological input is bounded upstream by extract_requirements: at
+    most 12 distinct source requirements of at most 300 characters each are
+    accepted. Within that finite set every hard decomposed clause is evaluated;
+    there is no first-come global item truncation.
+    """
     report = FitReport(job.title, job.company)
-    report.items = [_match_one(req, profile) for req in extract_requirements(job.description)]
+    seen: set[str] = set()
+    for req in extract_requirements(job.description):
+        represented = False
+        for text, preferred in decompose_requirement(req):
+            key = _dedupe_key(text)
+            if key in seen:
+                continue
+            item = _match_one(text, profile)
+            item.preferred = preferred
+            if preferred:
+                # Nice-to-have wording can never count as an unproven hard gap.
+                item.hard = False
+            if represented and not item.hard and len(report.items) >= max_items:
+                # Surplus soft detail beyond the reporting bound may be
+                # dropped; hard gaps and a requirement's first item may not.
+                continue
+            seen.add(key)
+            report.items.append(item)
+            represented = True
     return report
 
 
@@ -245,7 +397,8 @@ def render_report_markdown(report: FitReport, score: int | None = None, score_re
         return "\n".join(lines)
     icon = {"strong": "[strong]", "partial": "[partial]", "missing": "[MISSING]"}
     for item in report.items:
-        lines.append(f"- {icon[item.status]}{' [HARD]' if item.hard else ''} {item.requirement}")
+        flags = (" [HARD]" if item.hard else "") + (" [preferred]" if item.preferred else "")
+        lines.append(f"- {icon[item.status]}{flags} {item.requirement}")
         lines += [f"    evidence: {ev}" for ev in item.evidence]
     lines += ["", "Missing means the master CV shows no evidence for the requirement - it says nothing about the person.", ""]
     return "\n".join(lines)
