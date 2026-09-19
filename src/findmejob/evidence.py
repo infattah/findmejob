@@ -1,16 +1,4 @@
-"""Evidence-based qualification.
-
-Instead of one opaque keyword score, each requirement found in the job
-description is checked against the candidate's master CV and labeled:
-
-- strong:  direct evidence (a matching skill, or clear overlap with an
-  experience bullet)
-- partial: related evidence only (token overlap below the strong bar)
-- missing: no evidence in the master CV
-
-Deterministic and stdlib-only. Missing is a statement about the CV, not
-about the person: it means "your master CV shows no evidence for this".
-"""
+"""Deterministic, CV-grounded qualification evidence."""
 from __future__ import annotations
 
 import re
@@ -20,34 +8,30 @@ from typing import Any
 from .models import JobPosting, Profile
 
 _BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
-_REQ_HEADER = re.compile(
-    r"(requirements|qualifications|what you'?ll need|what we'?re looking for|"
-    r"who you are|about you|must[- ]haves?|you have|you bring)", re.IGNORECASE)
-_SECTION_HEADER = re.compile(
-    r"(responsibilities|what you'?ll do|about the role|about us|benefits|"
-    r"perks|nice[- ]to[- ]haves?|preferred)", re.IGNORECASE)
-
+_REQ_HEADER = re.compile(r"(requirements|qualifications|what you'?ll need|what we'?re looking for|who you are|about you|must[- ]haves?|you have|you bring)", re.I)
+_SECTION_HEADER = re.compile(r"(responsibilities|what you'?ll do|about the role|about us|benefits|perks|nice[- ]to[- ]haves?|preferred)", re.I)
 _TOKEN = re.compile(r"[a-z][a-z0-9+#.]{2,}")
-_STOP = {
-    "the", "and", "for", "with", "you", "your", "our", "are", "will", "that",
-    "this", "have", "has", "from", "who", "what", "ability", "strong",
-    "experience", "experienced", "years", "year", "work", "working", "team",
-    "skills", "skill", "knowledge", "plus", "etc", "role", "job", "must",
-    "should", "least", "related", "field", "equivalent", "proven", "track",
-    "record", "familiarity", "understanding", "including", "such", "like",
-    "able", "etc.",
-}
+_YEARS = re.compile(r"(?<!\d)(\d{1,2})\s*(?:\+|plus)?\s*years?", re.I)
+_HARD = re.compile(r"\b(must|required|requires?|minimum|at least|fluent|native|proficien(?:t|cy)|\d+\s*(?:\+|plus)?\s*years?|senior|head of|director|b2b|saas)\b", re.I)
+_STOP = {"the", "and", "for", "with", "you", "your", "our", "are", "will", "that", "this", "have", "has", "from", "who", "what", "ability", "strong", "experience", "experienced", "years", "year", "work", "working", "team", "skills", "skill", "knowledge", "plus", "etc", "role", "job", "must", "should", "least", "related", "field", "equivalent", "proven", "track", "record", "familiarity", "understanding", "including", "such", "like", "able"}
 
 
 def _tokens(text: str) -> set[str]:
-    return {t for t in _TOKEN.findall(text.lower()) if t not in _STOP}
+    # Period is valid inside tokens such as framework names, but sentence-final
+    # punctuation must not turn "experience." into a fake domain term.
+    tokens = {clean for raw in _TOKEN.findall(text.lower())
+              if (clean := raw.strip(".")) and clean not in _STOP}
+    # Small lexical normalization keeps ordinary CV wording aligned without
+    # turning unrelated domains into matches.
+    if "marketer" in tokens or "marketers" in tokens:
+        tokens.add("marketing")
+    return tokens
 
 
 def extract_requirements(description: str, max_items: int = 12) -> list[str]:
-    """Pull requirement-like lines out of a plain-text job description."""
     if not description:
         return []
-    lines = [l.strip() for l in description.splitlines() if l.strip()]
+    lines = [line.strip() for line in description.splitlines() if line.strip()]
     reqs: list[str] = []
     in_req = False
     for line in lines:
@@ -57,43 +41,39 @@ def extract_requirements(description: str, max_items: int = 12) -> list[str]:
         if _SECTION_HEADER.search(line) and len(line) < 120:
             in_req = False
             continue
-        if _BULLET.match(line):
-            text = _BULLET.sub("", line).strip()
-            looks_like_req = in_req or any(
-                m in text.lower()
-                for m in ("year", "experience", "proficien", "degree", "skill",
-                          "knowledge", "familiar", "expert", "fluent", "certif",
-                          "bachelor", "master", "diploma", "ability to"))
-            if looks_like_req and 12 <= len(text) <= 300:
-                reqs.append(text)
-        elif in_req and 12 <= len(line) <= 300:
-            reqs.append(line)
-    # fall back: when no structure was detected, treat "N+ years ..." sentences
+        text = _BULLET.sub("", line).strip() if _BULLET.match(line) else line
+        looks_like = in_req or any(x in text.lower() for x in ("year", "experience", "proficien", "degree", "skill", "knowledge", "familiar", "expert", "fluent", "native", "certif", "bachelor", "master", "diploma", "ability to", "required"))
+        if looks_like and 12 <= len(text) <= 300:
+            reqs.append(text)
     if not reqs:
         for sent in re.split(r"(?<=[.!?])\s+", description):
-            if re.search(r"\d+\+?\s*years?", sent) and 12 <= len(sent) <= 300:
+            if _YEARS.search(sent) and 12 <= len(sent) <= 300:
                 reqs.append(sent.strip())
     seen: set[str] = set()
     out: list[str] = []
-    for r in reqs:
-        key = " ".join(sorted(_tokens(r)))[:200]
-        if key and key not in seen:
+    for req in reqs:
+        key = " ".join(sorted(_tokens(req)))[:200] or req.lower()
+        if key not in seen:
             seen.add(key)
-            out.append(r)
+            out.append(req)
         if len(out) >= max_items:
             break
     return out
 
 
+def is_hard_requirement(requirement: str) -> bool:
+    return bool(_HARD.search(requirement))
+
+
 @dataclass
 class RequirementMatch:
     requirement: str
-    status: str  # strong | partial | missing
+    status: str
     evidence: list[str] = field(default_factory=list)
+    hard: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return {"requirement": self.requirement, "status": self.status,
-                "evidence": self.evidence}
+        return {"requirement": self.requirement, "status": self.status, "evidence": self.evidence, "hard": self.hard}
 
 
 @dataclass
@@ -104,34 +84,135 @@ class FitReport:
 
     @property
     def strong(self) -> int:
-        return sum(1 for i in self.items if i.status == "strong")
+        return sum(i.status == "strong" for i in self.items)
 
     @property
     def partial(self) -> int:
-        return sum(1 for i in self.items if i.status == "partial")
+        return sum(i.status == "partial" for i in self.items)
 
     @property
     def missing(self) -> int:
-        return sum(1 for i in self.items if i.status == "missing")
+        return sum(i.status == "missing" for i in self.items)
+
+    @property
+    def hard_missing(self) -> int:
+        return sum(i.hard and i.status != "strong" for i in self.items)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"job_title": self.job_title, "company": self.company,
-                "strong": self.strong, "partial": self.partial,
-                "missing": self.missing,
-                "items": [i.to_dict() for i in self.items]}
+        return {"job_title": self.job_title, "company": self.company, "strong": self.strong, "partial": self.partial, "missing": self.missing, "hard_missing": self.hard_missing, "items": [i.to_dict() for i in self.items]}
+
+
+def _max_years(text: str) -> int | None:
+    values = [int(x) for x in _YEARS.findall(text)]
+    return max(values) if values else None
+
+
+def _bounded_clauses(text: str) -> list[str]:
+    """Split prose where separate claims stop sharing evidence context."""
+    return [part.strip() for part in re.split(r"(?<=[.!?;])\s+|[;]", text)
+            if part.strip()]
+
+
+def _profile_evidence_fragments(profile: Profile) -> list[str]:
+    """Return sentence/clause-bounded CV facts without context donation."""
+    fragments: list[str] = []
+    for prose in (profile.headline, profile.summary):
+        fragments.extend(_bounded_clauses(prose))
+    fragments.extend(profile.skills)
+    for exp in profile.experiences:
+        # A role/company heading is useful domain evidence on its own, but must
+        # not be prepended to every bullet: that would lend its domain tokens to
+        # an unrelated numeric duration in the bullet.
+        context = f"{exp.role} {exp.company}".strip()
+        fragments.append(context)
+        for bullet in exp.bullets:
+            for clause in _bounded_clauses(bullet):
+                fragments.append(clause)
+                # "did X for N years" explicitly ties the duration to this
+                # experience entry. A bare "N years in other-domain" does not.
+                if re.search(r"\bfor\s+\d{1,2}\s*(?:\+|plus)?\s*years?\b", clause, re.I):
+                    fragments.append(f"{context}: {clause}")
+    # Free-form CV lines can contain several sentences. Bound those sentences too.
+    for line in profile.raw_text.splitlines():
+        fragments.extend(_bounded_clauses(line))
+    return [fragment for fragment in fragments if fragment]
+
+
+def _year_domain_tokens(requirement: str) -> set[str]:
+    # Bind years to their own clause when it names a domain. If that clause is
+    # generic ("5+ years of experience"), carry the domain from the adjacent
+    # requirement sentence so split wording remains one domain-specific gate.
+    clauses = _bounded_clauses(requirement)
+    year_clause = next((part for part in clauses if _YEARS.search(part)), requirement)
+    generic = {"requires", "require", "required", "minimum"}
+    year_tokens = _tokens(_YEARS.sub("", year_clause)) - generic
+    if year_tokens:
+        return year_tokens
+    adjacent_tokens: set[str] = set()
+    for clause in clauses:
+        if clause != year_clause:
+            adjacent_tokens.update(_tokens(clause))
+    return adjacent_tokens - generic
+
+
+def _grounded_domain(requirement: str, fragment: str) -> bool:
+    domain_terms = _year_domain_tokens(requirement)
+    fragment_tokens = _tokens(fragment)
+    overlap = len(domain_terms & fragment_tokens)
+    if not domain_terms:
+        return False
+    # "X or Y" names alternatives. One complete alternative plus the shared
+    # domain word is sufficient (for example "growth marketing").
+    if re.search(r"\bor\b", requirement, re.I) and "marketing" in domain_terms:
+        alternatives = domain_terms - {"marketing"}
+        return "marketing" in fragment_tokens and bool(alternatives & fragment_tokens)
+    ratio = overlap / len(domain_terms)
+    # A single distinctive term can ground a one-term domain (for example SEO).
+    # Longer domain phrases need at least two matching terms and half the phrase.
+    return overlap >= 1 if len(domain_terms) == 1 else overlap >= 2 and ratio >= .5
+
+
+def _domain_overlap(requirement: str, fragment: str) -> tuple[int, float]:
+    req_tokens = _year_domain_tokens(requirement)
+    if not req_tokens:
+        return 0, 0.0
+    overlap = len(req_tokens & _tokens(fragment))
+    return overlap, overlap / len(req_tokens)
 
 
 def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
+    hard = is_hard_requirement(requirement)
+    req_years = _max_years(requirement)
+    if req_years is not None:
+        fragments = _profile_evidence_fragments(profile)
+        domain_terms = _year_domain_tokens(requirement)
+        numeric = [(years, fragment) for fragment in fragments
+                   if (years := _max_years(fragment)) is not None and years >= req_years]
+        if not domain_terms and numeric:
+            years, fragment = max(numeric, key=lambda item: item[0])
+            return RequirementMatch(requirement, "strong",
+                                    [f"CV explicitly states {years}+ years: {fragment[:140]}"], hard)
+        grounded_numeric = [(years, fragment) for years, fragment in numeric
+                            if _grounded_domain(requirement, fragment)]
+        if grounded_numeric:
+            years, fragment = max(grounded_numeric, key=lambda item: item[0])
+            return RequirementMatch(requirement, "strong",
+                                    [f"domain-matched experience: {fragment[:160]}"], hard)
+        domain_evidence = [fragment for fragment in fragments
+                           if _grounded_domain(requirement, fragment)]
+        if domain_evidence:
+            # Preserve recall when the CV proves the domain but does not attach a
+            # trustworthy duration to it. Hard requirements still go to review.
+            return RequirementMatch(requirement, "partial",
+                                    [f"domain evidence without grounded duration: {domain_evidence[0][:140]}"], hard)
+        return RequirementMatch(requirement, "missing", [], hard)
     req_tokens = _tokens(requirement)
     if not req_tokens:
-        return RequirementMatch(requirement, "partial",
-                                ["requirement has no checkable keywords"])
-    # 1) direct skill evidence
+        return RequirementMatch(requirement, "missing" if hard else "partial", [], hard)
     for skill in profile.skills:
         skill_tokens = _tokens(skill)
         if skill_tokens and skill_tokens <= req_tokens:
-            return RequirementMatch(requirement, "strong", [f"skill: {skill}"])
-    # 2) experience-bullet evidence
+            return RequirementMatch(requirement, "strong", [f"skill: {skill}"], hard)
     best: tuple[int, str] = (0, "")
     for exp in profile.experiences:
         for bullet in [exp.role + " " + exp.company] + exp.bullets:
@@ -139,50 +220,32 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
             if overlap > best[0]:
                 best = (overlap, bullet.strip())
     ratio = best[0] / len(req_tokens)
-    if (best[0] >= 3 and ratio >= 0.5) or (best[0] >= 2 and ratio >= 0.8):
-        return RequirementMatch(requirement, "strong",
-                                [f"experience: {best[1][:160]}"])
-    if best[0] >= 2 and ratio >= 0.3:
-        return RequirementMatch(requirement, "partial",
-                                [f"related experience: {best[1][:160]}"])
-    # 3) whole-CV fallback (summary, education)
-    other = _tokens(profile.summary + " " + " ".join(
-        f"{e.degree} {e.school}" for e in profile.education))
-    if len(req_tokens & other) >= 2:
-        return RequirementMatch(requirement, "partial", ["mentioned in CV summary/education"])
-    return RequirementMatch(requirement, "missing", [])
+    if (best[0] >= 3 and ratio >= .5) or (best[0] >= 2 and ratio >= .8):
+        return RequirementMatch(requirement, "strong", [f"experience: {best[1][:160]}"], hard)
+    if not hard and best[0] >= 2 and ratio >= .3:
+        return RequirementMatch(requirement, "partial", [f"related experience: {best[1][:160]}"], hard)
+    return RequirementMatch(requirement, "missing", [], hard)
 
 
 def evaluate_requirements(profile: Profile, job: JobPosting) -> FitReport:
-    report = FitReport(job_title=job.title, company=job.company)
-    for req in extract_requirements(job.description):
-        report.items.append(_match_one(req, profile))
+    report = FitReport(job.title, job.company)
+    report.items = [_match_one(req, profile) for req in extract_requirements(job.description)]
     return report
 
 
-def render_report_markdown(report: FitReport, score: int | None = None,
-                           score_reasons: list[str] | None = None) -> str:
+def render_report_markdown(report: FitReport, score: int | None = None, score_reasons: list[str] | None = None) -> str:
     lines = [f"# Fit report: {report.job_title} @ {report.company}", ""]
     if score is not None:
         lines.append(f"Keyword fit score: {score}/100")
-    lines.append(
-        f"Requirements: {report.strong} strong, {report.partial} partial, "
-        f"{report.missing} missing (of {len(report.items)} found)")
-    lines.append("")
+    lines += [f"Requirements: {report.strong} strong, {report.partial} partial, {report.missing} missing (of {len(report.items)} found)", f"Hard requirements not proven: {report.hard_missing}", ""]
     if score_reasons:
         lines += ["Score reasons:"] + [f"- {r}" for r in score_reasons] + [""]
     if not report.items:
-        lines.append("No structured requirements found in the description; "
-                     "rely on the keyword score and read the listing yourself.")
-        lines.append("")
+        lines += ["No structured requirements found; read the listing before relying on the keyword score.", ""]
         return "\n".join(lines)
     icon = {"strong": "[strong]", "partial": "[partial]", "missing": "[MISSING]"}
     for item in report.items:
-        lines.append(f"- {icon[item.status]} {item.requirement}")
-        for ev in item.evidence:
-            lines.append(f"    evidence: {ev}")
-    lines.append("")
-    lines.append("Missing means the master CV shows no evidence for the "
-                 "requirement - it says nothing about the person.")
-    lines.append("")
+        lines.append(f"- {icon[item.status]}{' [HARD]' if item.hard else ''} {item.requirement}")
+        lines += [f"    evidence: {ev}" for ev in item.evidence]
+    lines += ["", "Missing means the master CV shows no evidence for the requirement - it says nothing about the person.", ""]
     return "\n".join(lines)

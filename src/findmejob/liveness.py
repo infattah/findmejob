@@ -15,6 +15,11 @@ from typing import Callable, Optional
 
 from .httpcache import USER_AGENT
 
+ALIVE_MARKERS = [
+    "apply for this job", "apply now", "submit application",
+    "application form", "job application",
+]
+
 EXPIRY_MARKERS = [
     "no longer available", "no longer accepting", "job has expired",
     "this job is no longer", "position has been filled", "job not found",
@@ -56,4 +61,7 @@ def check_listing(url: str, opener: Optional[Opener] = None,
             return "expired", f"page says: {marker}"
     if status == 200 and len(re.sub(r"\s+", "", low)) < 200:
         return "unknown", "page content too short to confirm"
-    return "alive", f"HTTP {status}"
+    for marker in ALIVE_MARKERS:
+        if marker in low:
+            return "alive", f"page says: {marker}"
+    return "unknown", f"HTTP {status} only; no explicit open/apply evidence"

@@ -73,3 +73,24 @@ Google Jobs, ZipRecruiter, Bayt, Naukri...). It is a scraping library, so:
   raw text.
 
 To add a first-party source, see docs/extending-adapters.md.
+
+## Safe discovery architecture
+
+FindMeJob separates discovery from ingestion. Broad discovery may use public search
+engines, public ATS APIs, RSS/Atom feeds, employer career pages, or an agent/tool
+that exports the documented `jsonfile` shape. The core never reuses authenticated
+browser cookies, bypasses access controls, rotates proxies, or scrapes a signed-in
+LinkedIn/Indeed session. Discovery results remain leads until the employer or ATS
+page supplies source, liveness, route and legitimacy evidence.
+
+For wider coverage without unsafe scraping, maintain a curated list of employer
+career pages and public ATS board identifiers, feed those public endpoints to the
+existing adapters, and use external public search only to propose new board IDs.
+An agent must verify each proposed board and listing before ingestion.
+
+### Liveness labels
+
+`alive` requires explicit page evidence such as an application form or apply call
+to action. A successful HTTP response without that evidence is `unknown`, with the
+detail `HTTP 200 only`; it is not proof that the role is open. Explicit closure text
+or HTTP 404/410 remains `expired`.

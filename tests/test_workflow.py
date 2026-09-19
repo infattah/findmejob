@@ -34,12 +34,18 @@ class TestWorkflowScenarios(unittest.TestCase):
         agent.handle("find jobs")
         tracker = agent.tracker
         jobs = tracker.list_jobs()
-        one = jobs[0]["id"]
+        one = next(j["id"] for j in jobs if j["company"] == "Sample Studio")
         tracker.set_status(one, "needs_input", "portal requires account")
         tracker.add_pending("Create an account on the portal?", job_id=one)
         others = [j for j in tracker.list_jobs() if j["id"] != one]
-        self.assertTrue(all(j["status"] != "needs_input" for j in others))
-        self.assertTrue(any(j["status"] == "shortlisted" for j in others))
+        # The remote sample has no confirmed hiring geography, so it must pause
+        # for review while the Dubai role continues independently.
+        self.assertTrue(others)
+        remote = next(j for j in others if j["company"] == "Madeup Travels")
+        self.assertEqual(remote["status"], "needs_input")
+        self.assertIn("no confirmed hiring location", remote["notes"])
+        dubai = next(j for j in others if j["company"] == "Fictional Pets Co")
+        self.assertEqual(dubai["status"], "shortlisted")
 
     def test_batched_pending_on_return(self):
         agent, _ = make_agent()

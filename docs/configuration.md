@@ -56,3 +56,33 @@ you prefer to edit by hand. JSON only; secrets never go here (they live in
 
 - `db`, `output`, `browser_profile`, `cache` - where state, artifacts, the
   persistent browser profile and the HTTP cache live. All are gitignored.
+
+## Discovery input
+
+Keep discovery broad: start with simple target role names or keywords, then add the
+preferred location; work mode is optional. Do not copy detailed experience, salary,
+legitimacy, language or restriction rules into source queries. Those checks run after
+discovery so a narrow query does not hide otherwise suitable roles.
+
+## Qualification and policy ordering
+
+Remote is a work mode, not a location override. If `locations_include` names real
+geographies, remote listings still require a matching hiring location; an unknown
+or out-of-preference location is sent to review.
+
+The evidence report marks explicit requirements such as years of experience,
+required language, seniority and named domain experience as hard. A hard
+requirement without direct CV evidence constrains qualification and sends the role
+to review even when keyword overlap is high. Generic summary/education overlap is
+not accepted as proof of a hard requirement.
+
+Years-of-experience checks keep the number tied to its CV context. For a requirement
+such as `5+ years of B2B SaaS demand generation`, an unrelated `9+ years in retail`
+does not pass. A strong match needs a sufficient duration and matching domain terms
+in the same CV fact. If the CV clearly shows the domain but does not state a duration
+there, the evidence is `partial` rather than discarded; hard requirements then pause
+for user review. Generic years-only requirements can still use an explicit overall
+years statement.
+
+Fit score is always stored before policy questions are applied. Salary uncertainty
+can change a row to `needs_input`, but it cannot erase ranking metadata.

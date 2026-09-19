@@ -33,8 +33,13 @@ def check_job(job: JobPosting, policy: dict[str, Any]) -> PolicyResult:
     exclude = [l.lower() for l in policy.get("locations_exclude", []) or []]
     if any(x in location for x in exclude):
         return PolicyResult("block", [f"excluded location: {job.location}"])
-    if include and location and not job.remote:
-        if not any(x in location for x in include):
+    # Remote describes work mode, not geography or work authorization. A remote
+    # listing still has to prove that its hiring location matches the profile.
+    geo_include = [x for x in include if x not in {"remote", "anywhere", "worldwide"}]
+    if geo_include:
+        if not location or location in {"remote", "anywhere", "worldwide"}:
+            reasons.append("remote role has no confirmed hiring location in include list")
+        elif not any(x in location for x in geo_include):
             reasons.append(f"location '{job.location}' not in include list")
 
     floor = int(policy.get("salary_floor") or 0)
