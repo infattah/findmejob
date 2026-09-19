@@ -65,27 +65,35 @@ def run_search(cfg: Config, tracker: Tracker) -> dict[str, Any]:
     # cross-source dedupe: within this batch, then against the tracker
     unique, batch_dupes = dedupe_batch(jobs)
     new_count = dup_count = 0
+    def remember_routes(job_id, job):
+        routes=[(job.source, job.url)]
+        if getattr(job,"apply_url","") and job.apply_url != job.url:
+            routes.append((job.source+":apply",job.apply_url))
+        return sum(bool(url) and tracker.add_link(job_id,source,url) for source,url in routes)
     for job in unique:
         existing = tracker.find_duplicate_job(job)
         if existing is not None:
-            if tracker.add_link(existing.id, job.source, job.url):
+            added=remember_routes(existing.id,job)
+            if added:
                 tracker.add_event(existing.id, "duplicate",
                                   f"also seen at {job.source}: {job.url}")
-                dup_count += 1
+            dup_count += 1
             continue
         verdict = check_job(job, cfg.policy)
         status = "new"
         if verdict.verdict == "block":
             status = "skipped"
         if tracker.upsert_job(job, verdict=verdict.verdict, status=status):
+            remember_routes(job.id,job)
             new_count += 1
             if verdict.verdict == "block":
                 tracker.add_event(job.id, "policy_block", "; ".join(verdict.reasons))
     for kept, dupe in batch_dupes:
-        if tracker.add_link(kept.id, dupe.source, dupe.url):
+        added=remember_routes(kept.id,dupe)
+        if added:
             tracker.add_event(kept.id, "duplicate",
                               f"also seen at {dupe.source}: {dupe.url}")
-            dup_count += 1
+        dup_count += 1
     tracker.add_event(None, "search",
                       f"{len(jobs)} fetched, {new_count} new, {dup_count} duplicates merged, "
                       f"{len(errors)} source errors")

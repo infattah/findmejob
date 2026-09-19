@@ -13,6 +13,27 @@ _WORD = re.compile(r"[a-z][a-z0-9+#.-]+")
 _SENIOR = re.compile(r"(?i)\b(?:head|director|vp|vice president|chief)\b")
 _JUNIOR = re.compile(r"(?i)\b(?:intern|junior|assistant|entry.level)\b")
 
+_DOMAIN_REQUIREMENT = re.compile(r"(?i)\b(?:cybersecurity|fintech|finance|financial|payments?|banking|proptech|saas|software as a service|real estate|hospitality|fmcg|beauty|e-?commerce|retail|healthcare|pharma|b2b technology|creator tools?)\b")
+
+def _domain_transferability(evidence) -> str:
+    """Derive domain fit only from requirement-to-CV evidence.
+
+    Generic evidence existence proves neither industry nor transferability. An explicit
+    domain requirement that is ungrounded is a mismatch; preferred domain evidence can
+    suggest transferability but can never create a critical gap.
+    """
+    domain_items = [i for i in evidence.items if _DOMAIN_REQUIREMENT.search(i.requirement)]
+    hard = [i for i in domain_items if i.hard and not i.preferred]
+    if hard and any(i.status != "strong" for i in hard):
+        return "mismatch"
+    if hard and all(i.status == "strong" for i in hard):
+        return "direct"
+    if domain_items:
+        return "direct" if any(i.status == "strong" for i in domain_items) else "transferable"
+    if any(i.status == "strong" for i in evidence.items):
+        return "transferable"
+    return "unknown"
+
 def _tokens(text: str) -> set[str]:
     stop={"and","the","of","for","in","a","manager","specialist","lead","senior","junior"}
     return {x for x in _WORD.findall(text.lower()) if x not in stop}
@@ -58,7 +79,7 @@ def build_signals(*, profile: Profile, job: JobPosting, policy: dict[str,Any], r
         policy_signal="pass"
     return signals_from_evidence(
         policy=policy_signal, liveness=row.get("liveness","unknown"), title_alignment=title,
-        function_alignment=function, domain_transferability="direct" if evidence.items else "unknown",
+        function_alignment=function, domain_transferability=_domain_transferability(evidence),
         seniority=_seniority(profile, job), location=location, salary=_salary(job,policy),
         employer_context=employer, evidence=evidence,
         responsibility_evidence=bool(_ACTION.search(job.description or "")),

@@ -14,6 +14,7 @@ alternate source and URL so every verified route stays reachable.
 from __future__ import annotations
 
 import re
+from difflib import SequenceMatcher
 from typing import Iterable, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -81,14 +82,59 @@ def signatures_match(a: tuple[str, str, str], b: tuple[str, str, str]) -> bool:
     return True
 
 
+def _description_similarity(a: str, b: str) -> float:
+    def clean(text: str) -> str:
+        return " ".join(_norm(text).split())
+    left, right = clean(a), clean(b)
+    if len(left) < 120 or len(right) < 120:
+        return 0.0
+    return min(SequenceMatcher(None, left, right, autojunk=False).ratio(),
+               SequenceMatcher(None, right, left, autojunk=False).ratio())
+
+
+_JOB_CUE = re.compile(
+    r"(?i)\b(?:own|lead|manage|build|execute|optimi[sz]e|analy[sz]e|report|drive|launch|plan|deliver|"
+    r"responsible|campaign|pipeline|attribution|cac|roas|retail|cybersecurity|channel partner|"
+    r"google ads|meta ads|paid media|loyalty|promotion|franchise|field event|quota|crm|software|engineering)\b")
+_BOILERPLATE = re.compile(
+    r"(?i)\b(?:equal opportunity|application guidance|interview support|recruiter supports|"
+    r"leading clients|benefits package|privacy policy|terms and conditions|apply now)\b")
+
+
+def _job_specific_tokens(text: str) -> set[str]:
+    """Keep duty/domain language and discard ordinary recruiter template prose."""
+    pieces = re.split(r"(?<=[.!?])\s+|[\n;]+", text or "")
+    specific = [p for p in pieces if _JOB_CUE.search(p) and not _BOILERPLATE.search(p)]
+    return set().union(*(_norm(p).split() for p in specific)) if specific else set()
+
+
+def _specific_similarity(a: str, b: str) -> float:
+    left, right = _job_specific_tokens(a), _job_specific_tokens(b)
+    if min(len(left), len(right)) < 8:
+        return 0.0
+    return len(left & right) / len(left | right)
+
+
+def _wrapper_duplicate(job: JobPosting, other: JobPosting) -> bool:
+    # Different requisitions are ambiguous even when employer/title/location match.
+    # Merge wrappers only when job-specific duties/domain are nearly identical;
+    # recruiter boilerplate is explicitly excluded from this evidence.
+    a, b = signature(job), signature(other)
+    if not a[1] or a[1] != b[1]: return False
+    if a[2] and b[2] and a[2] != b[2]: return False
+    return (_description_similarity(job.description, other.description) >= .90
+            and _specific_similarity(job.description, other.description) >= .88)
+
+
 def find_duplicate(job: JobPosting, candidates: Iterable[JobPosting]) -> Optional[JobPosting]:
     """Return the first candidate that is the same role, or None."""
-    url = canonical_url(job.url)
+    urls = {canonical_url(job.url), canonical_url(getattr(job, "apply_url", ""))} - {""}
     sig = signature(job)
     for other in candidates:
-        if url and canonical_url(other.url) == url:
+        other_urls = {canonical_url(other.url), canonical_url(getattr(other, "apply_url", ""))} - {""}
+        if urls & other_urls:
             return other
-        if signatures_match(sig, signature(other)):
+        if _wrapper_duplicate(job, other):
             return other
     return None
 

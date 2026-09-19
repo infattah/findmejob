@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
+import time
 
 from ..models import JobPosting
 from .base import http_json, strip_html
@@ -33,5 +34,13 @@ class AshbySource:
                 salary_text=salary,
                 posted_at=j.get("publishedAt", "") or "",
                 remote=bool(j.get("isRemote")) or "remote" in loc.lower(),
+                apply_url=(j.get("applyUrl") or "").strip(),
+                source_liveness=("alive" if j.get("isListed") is True and j.get("applyUrl")
+                                 else "expired" if j.get("isListed") is False else ""),
+                source_liveness_checked_at=time.time(),
+                source_liveness_detail=(
+                    "Ashby posting API: isListed=true and applyUrl present"
+                    if j.get("isListed") is True and j.get("applyUrl") else
+                    "Ashby posting API: isListed=false" if j.get("isListed") is False else ""),
             ))
         return jobs

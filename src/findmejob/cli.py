@@ -147,7 +147,7 @@ def cmd_refresh(args) -> int:
     if not args.verify:
         print("Nothing to do. Use --verify to check whether tracked listings are still live.")
         return 0
-    from .liveness import check_listing
+    from .liveness import check_job_liveness
     active = {"new", "shortlisted", "tailored", "ready", "needs_input"}
     checked = expired = alive = unknown = 0
     for row in tracker.list_jobs():
@@ -156,7 +156,7 @@ def cmd_refresh(args) -> int:
         if args.limit and checked >= args.limit:
             break
         checked += 1
-        status, detail = check_listing(row["url"])
+        status, detail = check_job_liveness(tracker.get_job(row["id"]))
         tracker.set_liveness(row["id"], status, detail)
         if status == "expired": expired += 1
         elif status == "alive": alive += 1
