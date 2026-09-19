@@ -6,11 +6,12 @@ findmejob turns one master CV and a plain preferences file into a repeatable pip
 
 1. **Find** roles from public job boards and feeds.
 2. **Filter** them against your constraints: salary floor, locations, industries, and anything you want excluded.
-3. **Score** fit against your real experience.
-4. **Tailor** your CV for each role, using only facts from your master CV. It never invents experience.
-5. **Draft** a short, natural application email. The CV carries the detail.
-6. **Apply** with a browser assistant that fills what it knows and stops to ask when it hits a CAPTCHA, a payment wall, an account-creation prompt, or a question your data cannot answer.
-7. **Track** every role, status, decision and follow-up date in a local database.
+3. **Verify** the employer from its official site, LinkedIn and an independent operational signal, while discovering source-backed careers, ATS or contact routes.
+4. **Score** fit against your real experience.
+5. **Tailor** your CV for each role, using only facts from your master CV. It never invents experience.
+6. **Draft** a short, natural application email. The CV carries the detail.
+7. **Apply** with a browser assistant that fills what it knows and stops to ask when it hits a CAPTCHA, a payment wall, an account-creation prompt, or a question your data cannot answer.
+8. **Track** every role, status, decision and follow-up date in a local database.
 
 It is designed to be driven by chat through a coding agent you already use - Claude Code, Codex, or any tool-capable CLI agent - but every step is also a plain CLI command you can run yourself. No model lock-in: the core pipeline is deterministic Python, and LLM calls are optional and provider-pluggable.
 
@@ -71,7 +72,7 @@ all (the core pipeline is deterministic Python). See `docs/runtimes.md` and
 - Send email or click final submit without your explicit approval (configurable, off by default).
 - Store secrets in the repo. API keys live in `.env`, which is gitignored.
 
-See `docs/safety-and-limitations.md` for the full list, including why universal auto-submit across every job site is not a goal.
+See `docs/company-verification.md` for the evidence and route-discovery workflow, and `docs/safety-and-limitations.md` for the full list, including why universal auto-submit across every job site is not a goal.
 
 ## Repository layout
 

@@ -27,7 +27,9 @@
   .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px; border:1px solid var(--line); }
   .pill.applied { border-color:#3fb27f; color:#3fb27f; }
   .pill.needs_input, .pill.blocked { border-color:#e0a13e; color:#e0a13e; }
-  .pill.shortlisted { border-color:var(--accent); color:var(--accent); }
+  .pill.shortlisted, .pill.verified { border-color:var(--accent); color:var(--accent); }
+  .pill.review { border-color:#e0a13e; color:#e0a13e; }
+  .pill.unknown { color:var(--dim); }
   .pill.skipped, .pill.rejected { color:var(--dim); }
   a { color:var(--accent); }
   .pending-item { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px; margin:6px 0; font-size:14px; }
@@ -77,9 +79,10 @@ async function refresh(){
     ? s.pending.map((p,i)=>`<div class="pending-item">${i+1}. ${esc(p.question)}</div>`).join('')
     : '<div class="muted">Nothing waiting on you.</div>';
   document.getElementById('jobs').innerHTML = s.jobs.length
-    ? '<table><tr><th>Role</th><th>Company</th><th>Score</th><th>Status</th></tr>' +
+    ? '<table><tr><th>Role</th><th>Company</th><th>Score</th><th>Company check</th><th>Status</th></tr>' +
       s.jobs.map(j=>`<tr><td>${j.url?`<a href="${j.url}">${esc(j.title)}</a>`:esc(j.title)}</td>`+
         `<td>${esc(j.company)}</td><td>${j.score??''}</td>`+
+        `<td><span class="pill ${j.verification?.status||'unknown'}">${esc(j.verification?.status||'unknown')}</span>${j.verification?.route?`<br><a href="${j.verification.route}">official route</a>`:''}</td>`+
         `<td><span class="pill ${j.status}">${j.status}</span></td></tr>`).join('') + '</table>'
     : '<div class="muted">No jobs yet. Say "find jobs" in chat.</div>';
   document.getElementById('files').innerHTML = s.files.length
