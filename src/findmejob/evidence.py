@@ -467,11 +467,189 @@ def _profession_anchor(tokens: set[str]) -> str | None:
     return None
 
 
+
+_PROFICIENCY_CUE = re.compile(r"(?i)\b(hands-on proficiency|proficiency|proficient|expertise)\b")
+_NUMBER_WORD = r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)"
+_TENURE_PHRASE = re.compile(
+    rf"(?i)(?:\b\d{{1,2}}\s*(?:\+|plus|or\s+more)?|\b{_NUMBER_WORD}\s*(?:plus|or\s+more)?)\s+years?\b"
+)
+_EXPLICIT_STRONG = re.compile(
+    r"(?i)\b(?:certified|administrators?|admin|power\s+user|"
+    r"daily\s+hands[- ]on\s+use|hands[- ]on\s+(?:use|experience)|"
+    r"advanced\s+proficien(?:cy|t)|expert(?:ise)?)\b"
+)
+_WEAK_LEVEL = re.compile(
+    r"(?i)\b(?:basic|limited|minimal|light|novic(?:e|es)|beginner(?:s)?|"
+    r"introductor(?:y|ily)|high[- ]level|working\s+knowledge|"
+    r"famili(?:ar|arity)|aware(?:ness)?|some|vague)\b"
+)
+_WEAK_FREQUENCY = re.compile(r"(?i)\b(?:occasional(?:ly)?|sometimes?|rarely|seldom)\b")
+_WEAK_EXPOSURE = re.compile(
+    r"(?i)\b(?:expos(?:ure|ed)|learn(?:ed|t|ing)?|stud(?:y|ied|ies|ying)|"
+    r"courses?|coursework|train(?:ed|ing|ings)|attend(?:ed|ing|s)?|"
+    r"explor(?:e|ed|es|ing|ation)|play(?:ed|ing|s)?|dabbl(?:e|ed|es|ing)|"
+    r"shadow(?:ed|ing|s)?|interested)\b"
+)
+_NEGATION = re.compile(
+    r"(?i)\b(?:no|none|lack(?:s|ed|ing)?|never|not|without|do not|does not|did not|"
+    r"have not|has not|had not)\b"
+)
+
+
+def _normalized_evidence(text: str) -> str:
+    normalized = text.lower().replace("’", "'")
+    contractions = {
+        "doesn't": "does not", "don't": "do not", "didn't": "did not",
+        "haven't": "have not", "hasn't": "has not", "hadn't": "had not",
+        "isn't": "is not", "wasn't": "was not", "weren't": "were not",
+    }
+    for source, target in contractions.items():
+        normalized = normalized.replace(source, target)
+    return re.sub(r"[^a-z0-9+#.]+", " ", normalized).strip()
+
+
+def _local_claim_windows(normalized: str, component: str | None) -> list[str]:
+    """Return bounded phrase windows around the claimed skill.
+
+    Evidence strength belongs to the target claim, not the whole CV line. This
+    keeps an unrelated negative/weak claim from suppressing a separate strong
+    one while supporting order and punctuation variants around the target.
+    """
+    if not component:
+        return [normalized]
+    anchors = _tokens(component) - {"tools", "tool", "product", "experience"}
+    words = normalized.split()
+    windows: list[str] = []
+    for idx, word in enumerate(words):
+        if word in anchors:
+            windows.append(" ".join(words[max(0, idx - 6):idx + 7]))
+    return windows or [normalized]
+
+
+_SHORTHAND_META = {
+    "occasional", "occasionally", "sometimes", "rarely", "seldom",
+    "used", "uses", "using", "worked", "works", "working", "with", "on",
+    "touched", "touches", "touching", "administered", "administers",
+    "administering", "administration", "operated", "operates", "operating",
+    "handled", "handles", "handling", "experience", "none", "never", "not",
+    "no", "without", "limited", "minimal", "light", "basic", "knowledge",
+    "exposure", "trained", "training", "studied", "course", "coursework",
+}
+_CONTRAST = re.compile(r"(?i)\s*[,;:]?\s*\b(?:but|though|although|however|yet)\b\s*[,;:]?\s*")
+
+
+def _has_different_target(clause: str, anchors: set[str]) -> bool:
+    """Reject shorthand inheritance when the clause names another target."""
+    content = _tokens(clause) - anchors - _SHORTHAND_META
+    return bool(content)
+
+
+def _claim_strength(claim: str) -> str:
+    """Classify one target-bound claim; callers combine claims independently."""
+    if _NEGATION.search(claim):
+        return "negated"
+    if (_WEAK_LEVEL.search(claim) or _WEAK_EXPOSURE.search(claim)
+            or _WEAK_FREQUENCY.search(claim)):
+        return "weak"
+    return "strong"
+
+
+def _evidence_strength(fragment: str, component: str | None = None) -> str:
+    """Classify target claims independently and discard weak/negated claims."""
+    # Contrast coordinators start a new claim even inside one sentence.
+    # Leading subordinate contrast ("Although X, Y") ends at its comma.
+    separated = re.sub(r"(?i)^\s*(?:although|though)\s+([^,]+),\s*", r"\1;", fragment)
+    separated = _CONTRAST.sub(";", separated)
+    raw_clauses = [part for part in re.split(r"[;.!?\n]+", separated) if part.strip()]
+    # Question/answer shorthand belongs to the preceding claim.
+    joined: list[str] = []
+    for part in raw_clauses:
+        if _normalized_evidence(part) == "none" and joined:
+            joined[-1] += " none"
+        else:
+            joined.append(part)
+    clauses = [_normalized_evidence(part) for part in joined]
+    anchors = _tokens(component or "") - {"tools", "tool", "product", "experience"}
+    claims: list[str] = []
+    for idx, clause in enumerate(clauses):
+        if anchors and not (anchors & _tokens(clause)):
+            continue
+        # Natural shorthand carries a named target into the immediately
+        # following anchorless modifier/activity clause. Treat the pair as one
+        # claim, so "HubSpot; occasionally administered" is weak rather than a
+        # bare strong claim plus an orphaned modifier.
+        if idx + 1 < len(clauses):
+            following = clauses[idx + 1]
+            following_has_anchor = bool(anchors & _tokens(following)) if anchors else False
+            if (not following_has_anchor
+                    and not _has_different_target(following, anchors)
+                    and (_WEAK_FREQUENCY.search(following)
+                         or _WEAK_LEVEL.search(following)
+                         or _WEAK_EXPOSURE.search(following)
+                         or _NEGATION.search(following))):
+                clause = f"{clause} {following}"
+        claims.extend(_local_claim_windows(clause, component))
+    if not claims:
+        claims = [_normalized_evidence(fragment)]
+    strengths = [_claim_strength(claim) for claim in claims]
+    # A separate strong target claim wins after weak/negated target claims are
+    # discarded. Weak fragments never combine into a strong claim.
+    if "strong" in strengths:
+        return "strong"
+    if "negated" in strengths:
+        return "negated"
+    return "weak"
+
+def _compound_components(requirement: str) -> list[str]:
+    """Return mandatory AND components for explicit proficiency compounds."""
+    if _TENURE_PHRASE.search(requirement):
+        return []
+    if not _PROFICIENCY_CUE.search(requirement) or not re.search(r"(?i)(?:\band\b|[&/])", requirement):
+        return []
+    if re.search(r"(?i)\b(?:or|preferred|optional|nice[- ]to[- ]have|bonus)\b", requirement):
+        return []
+    body = _PROFICIENCY_CUE.sub("", requirement, count=1)
+    body = re.sub(r"(?i)^\s*(?:with|in)\s+", "", body).strip(" .;,:-")
+    parts = [part.strip(" .;,:-") for part in re.split(r"(?i)\s*(?:\band\b|[&/])\s*", body)]
+    if any(_TENURE_PHRASE.search(part) for part in parts):
+        return []
+    return parts if len(parts) > 1 and all(_tokens(part) for part in parts) else []
+
+
+def _component_explicitly_grounded(component: str, fragment: str) -> bool:
+    want = _tokens(component) - {"tools", "tool", "product"}
+    got = _tokens(fragment)
+    if not want or _evidence_strength(fragment, component) != "strong":
+        return False
+    # Product analytics needs an explicit analytics/tool context, not unrelated
+    # financial analytics or generic claims of tool use.
+    if "analytics" in _tokens(component):
+        if "analytics" not in got or not ({"product", "posthog", "ga4", "amplitude", "mixpanel"} & got):
+            return False
+    return want <= got or (want == {"analytics"} and "analytics" in got)
+
+
+def _match_compound(requirement: str, profile: Profile, hard: bool) -> RequirementMatch | None:
+    components = _compound_components(requirement)
+    if not components:
+        return None
+    fragments = _profile_evidence_fragments(profile)
+    evidence: list[str] = []
+    for component in components:
+        match = next((f for f in fragments if _component_explicitly_grounded(component, f)), None)
+        if not match:
+            return RequirementMatch(requirement, "missing", [], hard)
+        evidence.append(f"{component}: {match[:120]}")
+    return RequirementMatch(requirement, "strong", evidence, hard)
+
 def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
     hard = is_hard_requirement(requirement)
     language = _match_language(requirement, profile, hard)
     if language is not None:
         return language
+    compound = _match_compound(requirement, profile, hard)
+    if compound is not None:
+        return compound
     req_years = _required_years(requirement)
     if req_years is not None:
         # Multiple tenure gates must have been atomized by decomposition. An
@@ -516,21 +694,32 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
             return RequirementMatch(requirement, "partial",
                                     [f"domain evidence without grounded duration: {domain_evidence[0][:140]}"], hard)
         return RequirementMatch(requirement, "missing", [], hard)
+    # Spelled-out tenure belongs to the tenure matcher, not generic token
+    # overlap. Until that matcher supports it, fail closed rather than borrowing
+    # words such as "five" from an unrelated team-size statement.
+    if _TENURE_PHRASE.search(requirement):
+        return RequirementMatch(requirement, "missing", [], hard)
     req_tokens = _tokens(requirement)
     if not req_tokens:
         return RequirementMatch(requirement, "missing" if hard else "partial", [], hard)
     for skill in profile.skills:
+        if _evidence_strength(skill, requirement) != "strong":
+            continue
         skill_tokens = _tokens(skill)
         if skill_tokens and skill_tokens <= req_tokens:
             return RequirementMatch(requirement, "strong", [f"skill: {skill}"], hard)
     # A short decomposed clause is proven when every one of its content tokens
     # appears in a single bounded CV fragment.
     for fragment in _profile_evidence_fragments(profile):
+        if _evidence_strength(fragment, requirement) != "strong":
+            continue
         if req_tokens <= _tokens(fragment):
             return RequirementMatch(requirement, "strong", [f"evidence: {fragment[:160]}"], hard)
     best: tuple[int, str] = (0, "")
     for exp in profile.experiences:
         for bullet in [exp.role + " " + exp.company] + exp.bullets:
+            if _evidence_strength(bullet, requirement) != "strong":
+                continue
             overlap = len(req_tokens & _tokens(bullet))
             if overlap > best[0]:
                 best = (overlap, bullet.strip())
