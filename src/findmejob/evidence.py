@@ -484,7 +484,6 @@ _WEAK_LEVEL = re.compile(
     r"famili(?:ar|arity)|aware(?:ness)?|some|vague)\b"
 )
 _WEAK_FREQUENCY = re.compile(r"(?i)\b(?:occasional(?:ly)?|sometimes?|rarely|seldom)\b")
-_WEAK_USE = re.compile(r"(?i)\b(?:use[ds]?|using|experience|knowledge|understanding)\b")
 _WEAK_EXPOSURE = re.compile(
     r"(?i)\b(?:expos(?:ure|ed)|learn(?:ed|t|ing)?|stud(?:y|ied|ies|ying)|"
     r"courses?|coursework|train(?:ed|ing|ings)|attend(?:ed|ing|s)?|"
@@ -492,7 +491,7 @@ _WEAK_EXPOSURE = re.compile(
     r"shadow(?:ed|ing|s)?|interested)\b"
 )
 _NEGATION = re.compile(
-    r"(?i)\b(?:no|lack(?:s|ed|ing)?|never|not|without|do not|does not|did not|"
+    r"(?i)\b(?:no|none|lack(?:s|ed|ing)?|never|not|without|do not|does not|did not|"
     r"have not|has not|had not)\b"
 )
 
@@ -532,8 +531,16 @@ def _evidence_strength(fragment: str, component: str | None = None) -> str:
     # Preserve hard phrase boundaries before punctuation normalization so an
     # unrelated weak/negative clause cannot contaminate the target claim.
     raw_clauses = [part for part in re.split(r"[;.!?\n]+", fragment) if part.strip()]
+    # A punctuation-separated answer such as "HubSpot experience? None" is
+    # part of the preceding claim, not an unrelated sentence.
+    joined_clauses: list[str] = []
+    for part in raw_clauses:
+        if _normalized_evidence(part) == "none" and joined_clauses:
+            joined_clauses[-1] += " none"
+        else:
+            joined_clauses.append(part)
     anchors = _tokens(component or "") - {"tools", "tool", "product", "experience"}
-    clauses = [_normalized_evidence(part) for part in raw_clauses]
+    clauses = [_normalized_evidence(part) for part in joined_clauses]
     target_clauses = [part for part in clauses if not anchors or anchors & _tokens(part)]
     windows = [window for part in (target_clauses or clauses)
                for window in _local_claim_windows(part, component)]
@@ -545,7 +552,7 @@ def _evidence_strength(fragment: str, component: str | None = None) -> str:
     for local in windows:
         if _WEAK_LEVEL.search(local) or _WEAK_EXPOSURE.search(local):
             return "weak"
-        if _WEAK_FREQUENCY.search(local) and _WEAK_USE.search(local):
+        if _WEAK_FREQUENCY.search(local):
             return "weak"
     if any(_EXPLICIT_STRONG.search(local) for local in windows):
         return "strong"

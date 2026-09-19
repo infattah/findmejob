@@ -213,3 +213,46 @@ class WeakEvidenceMorphologyTests(unittest.TestCase):
     def test_unrelated_weak_claim_does_not_suppress_target(self):
         self.assertEqual("strong", self.status("Rarely used Salesforce; HubSpot administrator"))
         self.assertEqual("strong", self.status("Minimal Salesforce experience. HubSpot power user"))
+
+class WeakFrequencyClosureTests(unittest.TestCase):
+    def status(self, evidence, skill="HubSpot"):
+        requirement = f"Hands-on proficiency with {skill} and product analytics tools"
+        return evaluate_requirements(
+            Profile(skills=[evidence, "Product analytics tools: PostHog"]),
+            JobPosting(title="T", company="C", description="Requirements\n- " + requirement),
+        ).items[0].status
+
+    def test_frequency_is_weak_independent_of_activity_word(self):
+        cases = (
+            "Seldom worked with HubSpot", "Occasionally worked with HubSpot",
+            "Rarely works with HubSpot", "Sometimes works on HubSpot",
+            "Rarely touched HubSpot", "Occasional HubSpot administration",
+            "HUBSPOT - SELDOM handled", "HubSpot, occasionally operated",
+        )
+        for evidence in cases:
+            with self.subTest(evidence=evidence):
+                self.assertEqual("missing", self.status(evidence))
+
+    def test_frequency_is_profession_neutral(self):
+        cases = (
+            ("Rarely worked with Kubernetes", "Kubernetes"),
+            ("Occasional Kubernetes administration", "Kubernetes"),
+            ("Sometimes handled Terraform", "Terraform"),
+            ("TERRAFORM: seldom operated", "Terraform"),
+        )
+        for evidence, skill in cases:
+            with self.subTest(evidence=evidence):
+                self.assertEqual("missing", self.status(evidence, skill))
+
+    def test_none_is_negated_non_evidence(self):
+        cases = (
+            "HubSpot experience: none", "NONE - HubSpot experience",
+            "HubSpot, none", "Experience with HubSpot? None.",
+        )
+        for evidence in cases:
+            with self.subTest(evidence=evidence):
+                self.assertEqual("missing", self.status(evidence))
+
+    def test_unrelated_frequency_and_none_preserve_clause_locality(self):
+        self.assertEqual("strong", self.status("Salesforce experience: none; HubSpot administrator"))
+        self.assertEqual("strong", self.status("Rarely used Salesforce. HubSpot power user"))
