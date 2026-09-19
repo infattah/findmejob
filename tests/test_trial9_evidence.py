@@ -298,3 +298,54 @@ class IndependentTargetClaimClosureTests(unittest.TestCase):
         for evidence in cases:
             with self.subTest(evidence=evidence):
                 self.assertEqual("missing", self.status(evidence))
+
+class DefinitiveLocalityTests(unittest.TestCase):
+    def status(self, evidence, skill="HubSpot"):
+        requirement = f"Hands-on proficiency with {skill} and product analytics tools"
+        return evaluate_requirements(
+            Profile(skills=[evidence, "Product analytics tools: PostHog"]),
+            JobPosting(title="T", company="C", description="Requirements\n- " + requirement),
+        ).items[0].status
+
+    def test_adjacent_different_target_never_inherits(self):
+        cases = (
+            "HubSpot administrator. Occasionally used Salesforce",
+            "HubSpot administrator; Salesforce: rarely used",
+            "HubSpot administrator. Never used Salesforce",
+            "HubSpot administrator; Salesforce experience: none",
+            "Salesforce rarely used; HubSpot administrator",
+            "Never used Terraform. HubSpot power user",
+            "HubSpot power user; Kubernetes occasionally operated",
+        )
+        for evidence in cases:
+            with self.subTest(evidence=evidence):
+                self.assertEqual("strong", self.status(evidence))
+
+    def test_cross_target_claims_are_classified_only_for_their_target(self):
+        evidence = "HubSpot administrator; Salesforce: rarely used"
+        self.assertEqual("strong", self.status(evidence, "HubSpot"))
+        self.assertEqual("missing", self.status(evidence, "Salesforce"))
+        evidence = "Terraform experience: none. Kubernetes administrator"
+        self.assertEqual("missing", self.status(evidence, "Terraform"))
+        self.assertEqual("strong", self.status(evidence, "Kubernetes"))
+
+    def test_contrast_coordinators_split_same_target_claims(self):
+        cases = (
+            "Rarely handled HubSpot, but HubSpot power user",
+            "HubSpot power user, though HubSpot was rarely handled",
+            "HUBSPOT rarely handled; HOWEVER, HubSpot administrator",
+            "Although HubSpot was seldom used, HubSpot power user",
+            "HubSpot administrator yet HubSpot experience: none",
+        )
+        for evidence in cases:
+            with self.subTest(evidence=evidence):
+                self.assertEqual("strong", self.status(evidence))
+
+    def test_contrast_only_weak_same_target_remains_missing(self):
+        cases = (
+            "Rarely handled HubSpot, but sometimes used HubSpot",
+            "HubSpot experience: none; however HubSpot was occasionally handled",
+        )
+        for evidence in cases:
+            with self.subTest(evidence=evidence):
+                self.assertEqual("missing", self.status(evidence))

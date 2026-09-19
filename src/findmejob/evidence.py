@@ -526,6 +526,24 @@ def _local_claim_windows(normalized: str, component: str | None) -> list[str]:
     return windows or [normalized]
 
 
+_SHORTHAND_META = {
+    "occasional", "occasionally", "sometimes", "rarely", "seldom",
+    "used", "uses", "using", "worked", "works", "working", "with", "on",
+    "touched", "touches", "touching", "administered", "administers",
+    "administering", "administration", "operated", "operates", "operating",
+    "handled", "handles", "handling", "experience", "none", "never", "not",
+    "no", "without", "limited", "minimal", "light", "basic", "knowledge",
+    "exposure", "trained", "training", "studied", "course", "coursework",
+}
+_CONTRAST = re.compile(r"(?i)\s*[,;:]?\s*\b(?:but|though|although|however|yet)\b\s*[,;:]?\s*")
+
+
+def _has_different_target(clause: str, anchors: set[str]) -> bool:
+    """Reject shorthand inheritance when the clause names another target."""
+    content = _tokens(clause) - anchors - _SHORTHAND_META
+    return bool(content)
+
+
 def _claim_strength(claim: str) -> str:
     """Classify one target-bound claim; callers combine claims independently."""
     if _NEGATION.search(claim):
@@ -538,7 +556,11 @@ def _claim_strength(claim: str) -> str:
 
 def _evidence_strength(fragment: str, component: str | None = None) -> str:
     """Classify target claims independently and discard weak/negated claims."""
-    raw_clauses = [part for part in re.split(r"[;.!?\n]+", fragment) if part.strip()]
+    # Contrast coordinators start a new claim even inside one sentence.
+    # Leading subordinate contrast ("Although X, Y") ends at its comma.
+    separated = re.sub(r"(?i)^\s*(?:although|though)\s+([^,]+),\s*", r"\1;", fragment)
+    separated = _CONTRAST.sub(";", separated)
+    raw_clauses = [part for part in re.split(r"[;.!?\n]+", separated) if part.strip()]
     # Question/answer shorthand belongs to the preceding claim.
     joined: list[str] = []
     for part in raw_clauses:
@@ -560,6 +582,7 @@ def _evidence_strength(fragment: str, component: str | None = None) -> str:
             following = clauses[idx + 1]
             following_has_anchor = bool(anchors & _tokens(following)) if anchors else False
             if (not following_has_anchor
+                    and not _has_different_target(following, anchors)
                     and (_WEAK_FREQUENCY.search(following)
                          or _WEAK_LEVEL.search(following)
                          or _WEAK_EXPOSURE.search(following)
