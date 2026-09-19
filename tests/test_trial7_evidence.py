@@ -37,3 +37,36 @@ class ExplicitLanguageEvidenceTests(unittest.TestCase):
         self.assertEqual("missing",self.item("Arabic: fluent.","Fluent English").status)
 
 if __name__=='__main__': unittest.main()
+
+class ReviewerContextualEvidenceNegatives(unittest.TestCase):
+    def match(self,summary,req):
+        return evaluate_requirements(Profile(summary=summary),JobPosting(title="T",company="C",description="Requirements\n- "+req))
+    def test_growth_marketing_false_friends(self):
+        req="5-8 years in Growth Marketing"
+        for text in ("7+ years in marketing. Media relations and press releases.","7+ years in marketing. Retail sales promotions.","7+ years in marketing. Growth mindset."):
+            with self.subTest(text=text): self.assertNotEqual("strong",self.match(text,req).items[0].status)
+    def test_brand_campaign_false_friends(self):
+        req="6-8 years in brand marketing, campaign and project management"
+        for text in ("7+ years in marketing. Software project management.","7+ years in marketing. One charity campaign."):
+            with self.subTest(text=text): self.assertNotEqual("strong",self.match(text,req).items[0].status)
+    def test_mixed_hard_clause_preserves_missing_tenure(self):
+        report=self.match("English: fluent professional working proficiency. 2 years in growth marketing.","Fluent English and 5 years of growth marketing")
+        self.assertGreaterEqual(report.hard_missing,1)
+        self.assertTrue(any("5 years" in i.requirement and i.status!="strong" for i in report.items))
+
+class LanguageModalityTests(unittest.TestCase):
+    def status(self,summary,req):
+        return evaluate_requirements(Profile(summary=summary),JobPosting(title="T",company="C",description="Requirements\n- "+req)).items[0].status
+    def test_spoken_does_not_satisfy_written(self): self.assertEqual("missing",self.status("English: spoken fluent.","Written fluent English"))
+    def test_written_does_not_satisfy_spoken(self): self.assertEqual("missing",self.status("English: written fluent.","Spoken fluent English"))
+    def test_general_explicit_proficiency_covers_both(self):
+        self.assertEqual("strong", self.status("English: fluent professional proficiency.", "Written fluent English"))
+        self.assertEqual("strong", self.status("English: fluent professional proficiency.", "Spoken fluent English"))
+
+    def test_one_modality_does_not_satisfy_general(self):
+        self.assertEqual("missing", self.status("English: spoken fluent.", "Fluent English"))
+
+    def test_both_modalities_satisfy_general_and_both(self):
+        evidence = "English: written and spoken fluent."
+        self.assertEqual("strong", self.status(evidence, "Fluent English"))
+        self.assertEqual("strong", self.status(evidence, "Fluent in written and spoken English"))

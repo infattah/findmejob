@@ -53,12 +53,11 @@ _GENERIC_CAREER_YEARS = re.compile(
     r"(?i)\b\d{1,2}\s*(?:\+|plus)?\s*years?\s+(?:of\s+)?(?:professional |career |work )?experience\b"
 )
 
-_DOMAIN_EQUIVALENTS = (
-    frozenset({"growth", "performance", "promotion", "promotions", "paid", "acquisition", "media"}),
-    frozenset({"brand", "campaign", "campaigns", "project"}),
-    frozenset({"digital", "online"}),
-    frozenset({"automation", "lifecycle", "crm"}),
-)
+_SUBDOMAIN_PATTERNS = {
+    "growth_marketing": re.compile(r"(?i)\b(?:growth|performance) marketing\b|\bpaid (?:acquisition|media)\b|\b(?:cac|ltv|roas|cpl)\b"),
+    "brand_campaign": re.compile(r"(?i)\bbrand (?:building|marketing|campaigns?)\b|\bintegrated (?:brand )?campaigns?\b|\bcampaign project management\b"),
+}
+
 
 
 def _tokens(text: str) -> set[str]:
@@ -167,6 +166,12 @@ def decompose_requirement(requirement: str) -> list[tuple[str, bool]]:
     become a hard gap nor soften a hard clause beside it.
     """
     sentences = _bounded_clauses(requirement)
+    # Mixed language + tenure clauses contain independent hard constraints.
+    # Split only at the language/years boundary, not arbitrary "and" phrases.
+    if len(sentences) == 1 and _YEARS.search(requirement) and re.search(r"(?i)\b(?:fluent|native|bilingual|proficiency)\b", requirement):
+        atoms = [part.strip(" .;,") for part in re.split(r"(?i)\s+and\s+(?=\d|(?:fluent|native|bilingual|working|professional))", requirement) if part.strip()]
+        if len(atoms) > 1:
+            return [(atom, False) for atom in atoms]
     if len(sentences) <= 1 and "," not in requirement and not _PREFERRED.search(requirement):
         return [(requirement.strip(" .;,"), False)]
     items: list[tuple[str, bool]] = []
@@ -332,18 +337,16 @@ def _grounded_domain(requirement: str, fragment: str) -> bool:
     if re.search(r"\bor\b", requirement, re.I) and "marketing" in domain_terms:
         alternatives = domain_terms - {"marketing"}
         return "marketing" in fragment_tokens and bool(alternatives & fragment_tokens)
+    # Marketing subdomains require coherent phrases, even when their individual
+    # tokens overlap. This prevents "growth mindset and marketing" or unrelated
+    # brand/campaign/project mentions from passing as domain evidence.
+    frag_low = fragment.lower()
+    if ("growth" in domain_terms or "performance" in domain_terms) and "marketing" in domain_terms:
+        return bool(_SUBDOMAIN_PATTERNS["growth_marketing"].search(frag_low))
+    if "brand" in domain_terms and "marketing" in domain_terms:
+        return bool(_SUBDOMAIN_PATTERNS["brand_campaign"].search(frag_low))
     ratio = overlap / len(domain_terms)
-    if overlap >= 1 if len(domain_terms) == 1 else overlap >= 2 and ratio >= .5:
-        return True
-    # Job ads and CVs often use performance-marketing vocabulary interchangeably
-    # (paid acquisition, paid media, performance marketing). This equivalence is
-    # deliberately narrow and still requires a complete bounded CV fragment.
-    for family in _DOMAIN_EQUIVALENTS:
-        if domain_terms & family and fragment_tokens & family:
-            residual = domain_terms - family - {"marketing", "management"}
-            if not residual or bool(residual & fragment_tokens):
-                return True
-    return False
+    return bool(overlap >= 1 if len(domain_terms) == 1 else overlap >= 2 and ratio >= .5)
 
 
 def _domain_overlap(requirement: str, fragment: str) -> tuple[int, float]:
@@ -355,24 +358,65 @@ def _domain_overlap(requirement: str, fragment: str) -> tuple[int, float]:
 
 
 def _match_language(requirement: str, profile: Profile, hard: bool) -> RequirementMatch | None:
-    leading = re.search(r"(?i)\b(fluent|working proficiency|professional proficiency|native|bilingual)\s+(?:in\s+)?(?:written\s+|spoken\s+)?([a-z]+)\b", requirement)
-    trailing = re.search(r"(?i)\b([a-z]+)\s+(fluent|working proficiency|professional proficiency|native|bilingual)\b", requirement)
+    level_match = re.search(
+        r"(?i)\b(fluent|working proficiency|professional proficiency|native|bilingual)\b",
+        requirement,
+    )
+    if not level_match:
+        return None
+    level = level_match.group(1).lower()
+    # Accept ordinary orderings such as "spoken fluent English", "fluent in
+    # written English", and "English written and spoken fluent". The captured
+    # language remains next to the proficiency/modality phrase, avoiding a scan
+    # for arbitrary capitalized words elsewhere in a compound requirement.
+    modifier = r"(?:(?:both\s+)?(?:written|spoken)(?:\s+and\s+(?:written|spoken))?\s+)?"
+    leading = re.search(
+        rf"(?i)\b(?:{modifier})(?:fluent|working proficiency|professional proficiency|native|bilingual)"
+        rf"\s+(?:in\s+)?(?:{modifier})([a-z]+)\b",
+        requirement,
+    )
+    trailing = re.search(
+        rf"(?i)\b([a-z]+)\s+(?:{modifier})(?:fluent|working proficiency|professional proficiency|native|bilingual)\b",
+        requirement,
+    )
     if leading:
-        level, language = leading.group(1).lower(), leading.group(2).lower()
+        language = leading.group(1).lower()
     elif trailing:
-        language, level = trailing.group(1).lower(), trailing.group(2).lower()
+        language = trailing.group(1).lower()
     else:
         return None
-    fragments = _profile_evidence_fragments(profile)
-    evidence = next((f for f in fragments if re.search(
-        rf"(?i)\b{re.escape(language)}\b.{{0,50}}\b(?:fluent|working proficiency|professional proficiency|native|bilingual)\b|"
-        rf"\b(?:fluent|working proficiency|professional proficiency|native|bilingual)\b.{{0,50}}\b{re.escape(language)}\b", f)), None)
+    required_mods = set(re.findall(r"(?i)\b(written|spoken)\b", requirement))
+    candidates: list[str] = []
+    for fragment in _profile_evidence_fragments(profile):
+        if not re.search(rf"(?i)\b{re.escape(language)}\b", fragment):
+            continue
+        if not re.search(
+            r"(?i)\b(fluent|working proficiency|professional proficiency|native|bilingual)\b",
+            fragment,
+        ):
+            continue
+        evidence_mods = set(re.findall(r"(?i)\b(written|spoken)\b", fragment))
+        # No evidence modality means explicit general proficiency and therefore
+        # covers both. Otherwise every required modality must be explicit. A
+        # general requirement also needs both modalities, not spoken-only or
+        # written-only evidence.
+        if evidence_mods:
+            expected = required_mods or {"written", "spoken"}
+            if not expected <= evidence_mods:
+                continue
+        candidates.append(fragment)
+    evidence = candidates[0] if candidates else None
     if not evidence:
         return RequirementMatch(requirement, "missing", [], hard)
-    low=evidence.lower()
-    if level in {"native","bilingual"} and not re.search(r"\b(native|bilingual)\b",low):
-        return RequirementMatch(requirement,"missing",[],hard)
-    return RequirementMatch(requirement,"strong",[f"explicit language evidence: {evidence[:140]}"],hard)
+    low = evidence.lower()
+    if level in {"native", "bilingual"} and not re.search(r"\b(native|bilingual)\b", low):
+        return RequirementMatch(requirement, "missing", [], hard)
+    return RequirementMatch(
+        requirement,
+        "strong",
+        [f"explicit language evidence: {evidence[:140]}"],
+        hard,
+    )
 
 
 def _profession_anchor(tokens: set[str]) -> str | None:
