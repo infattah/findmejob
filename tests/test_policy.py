@@ -39,9 +39,9 @@ class TestPolicy(unittest.TestCase):
         r = check_job(self.job(location="Cairo"), POLICY)
         self.assertEqual(r.verdict, "review")
 
-    def test_remote_ok(self):
+    def test_remote_without_matching_hiring_location_needs_review(self):
         r = check_job(self.job(location="Anywhere", remote=True), POLICY)
-        self.assertEqual(r.verdict, "pass")
+        self.assertEqual(r.verdict, "review")
 
 if __name__ == "__main__":
     unittest.main()

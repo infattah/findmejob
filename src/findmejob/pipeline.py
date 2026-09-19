@@ -101,10 +101,18 @@ def run_triage(cfg: Config, tracker: Tracker) -> dict[str, Any]:
         if not job:
             continue
         fit = score_fit(profile, job, role_keywords)
-        _write_fit_report(cfg, tracker, profile, job, fit)
+        from .evidence import evaluate_requirements
+        evidence = evaluate_requirements(profile, job)
+        # Persist ranking independently of policy review. Salary uncertainty must
+        # never erase fit metadata.
+        tracker.conn.execute("UPDATE jobs SET score=?, updated=? WHERE id=?", (fit.score, __import__("time").time(), job.id))
+        tracker.conn.commit()
+        _write_fit_report(cfg, tracker, profile, job, fit, evidence)
         verdict = row["policy_verdict"] or "pass"
-        if verdict == "review":
-            tracker.set_status(job.id, "needs_input", "; ".join(check_job(job, cfg.policy).reasons))
+        hard_reasons = [f"hard requirement not proven: {i.requirement}" for i in evidence.items if i.hard and i.status != "strong"]
+        if verdict == "review" or hard_reasons:
+            policy_reasons = check_job(job, cfg.policy).reasons if verdict == "review" else []
+            tracker.set_status(job.id, "needs_input", "; ".join(policy_reasons + hard_reasons))
             tracker.add_pending(
                 f"Review policy question for {job.title} @ {job.company}: "
                 + "; ".join(check_job(job, cfg.policy).reasons), job_id=job.id)
@@ -123,9 +131,9 @@ def run_triage(cfg: Config, tracker: Tracker) -> dict[str, Any]:
 
 
 def _write_fit_report(cfg: Config, tracker: Tracker, profile: Profile,
-                      job: JobPosting, fit) -> None:
+                      job: JobPosting, fit, report=None) -> None:
     from .evidence import evaluate_requirements, render_report_markdown
-    report = evaluate_requirements(profile, job)
+    report = report or evaluate_requirements(profile, job)
     fit_dir = cfg.output_dir / "fit"
     fit_dir.mkdir(parents=True, exist_ok=True)
     (fit_dir / f"{job.id}.md").write_text(

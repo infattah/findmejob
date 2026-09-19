@@ -56,3 +56,18 @@ you prefer to edit by hand. JSON only; secrets never go here (they live in
 
 - `db`, `output`, `browser_profile`, `cache` - where state, artifacts, the
   persistent browser profile and the HTTP cache live. All are gitignored.
+
+## Qualification and policy ordering
+
+Remote is a work mode, not a location override. If `locations_include` names real
+geographies, remote listings still require a matching hiring location; an unknown
+or out-of-preference location is sent to review.
+
+The evidence report marks explicit requirements such as years of experience,
+required language, seniority and named domain experience as hard. A hard
+requirement without direct CV evidence constrains qualification and sends the role
+to review even when keyword overlap is high. Generic summary/education overlap is
+not accepted as proof of a hard requirement.
+
+Fit score is always stored before policy questions are applied. Salary uncertainty
+can change a row to `needs_input`, but it cannot erase ranking metadata.
