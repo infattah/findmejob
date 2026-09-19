@@ -10,36 +10,10 @@ unknown pay period, or a missing exchange rate always requires review.
 """
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from .models import JobPosting, PolicyResult
 from .salary import normalize, parse_salary
-
-_SALARY_NUM = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(k)?", re.IGNORECASE)
-
-
-def parse_salary_floor(text: str) -> int | None:
-    """Best-effort lower bound of a salary range, normalized to a yearly figure."""
-    if not text:
-        return None
-    nums: list[float] = []
-    for m in _SALARY_NUM.finditer(text):
-        val = float(m.group(1).replace(",", ""))
-        if m.group(2):
-            val *= 1000
-        nums.append(val)
-    if not nums:
-        return None
-    big = [n for n in nums if n > 100]
-    low = min(big) if big else min(nums)
-    text_low = text.lower()
-    if ("month" in text_low or "/mo" in text_low) and low < 200000:
-        low *= 12
-    elif low < 1000:  # looks like an hourly rate
-        low *= 2080
-    return int(low)
-
 
 def check_job(job: JobPosting, policy: dict[str, Any]) -> PolicyResult:
     reasons: list[str] = []

@@ -1,4 +1,5 @@
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -21,6 +22,10 @@ def extract(path):
                           text=True, capture_output=True).stdout
 
 
+_POPPLER = shutil.which("pdftotext") and shutil.which("pdfinfo")
+_poppler_skip = unittest.skipUnless(_POPPLER, "poppler-utils (pdftotext/pdfinfo) not installed")
+
+
 class TestPdf(unittest.TestCase):
     def setUp(self):
         self.dir=Path(tempfile.mkdtemp()); self.job=JobPosting(title="PMM",company="X",description="ads")
@@ -32,11 +37,13 @@ class TestPdf(unittest.TestCase):
         for m in re.finditer(rb"(\d{10}) 00000 n",data):
             off=int(m.group(1));self.assertRegex(data[off:off+20],rb"^\d+ 0 obj")
 
+    @_poppler_skip
     def test_contains_extractable_cv_text(self):
         out=render_cv_pdf(profile(),self.job,self.dir/"cv.pdf"); text=extract(out)
         for expected in ("Alex Example","alex@example.com","Experience","Achievement number 1"):
             self.assertIn(expected,text)
 
+    @_poppler_skip
     def test_representative_arabic_and_cjk_survive_extraction(self):
         p=profile();p.full_name="ليلى أحمد";p.summary="متحدث بالعربية - 中文市场 - 日本語"
         out=render_cv_pdf(p,self.job,self.dir/"unicode.pdf"); text=extract(out)
@@ -46,6 +53,7 @@ class TestPdf(unittest.TestCase):
             self.assertIn(expected, text)
         self.assertNotIn("????",text)
 
+    @_poppler_skip
     def test_long_cv_paginates_without_clipped_page_content(self):
         out=render_cv_pdf(profile(bullets_per_role=40,roles=3),self.job,self.dir/"long.pdf")
         info=subprocess.run(["pdfinfo",str(out)],check=True,text=True,capture_output=True).stdout

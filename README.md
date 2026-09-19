@@ -87,7 +87,8 @@ src/findmejob/sources/   job board adapters (Greenhouse, Lever, Ashby, SmartRecr
 src/findmejob/render/    designed Unicode PDF CV renderer (stdlib-only; bundled open fonts)
 src/findmejob/browser/   browser apply flow + safety guards (Playwright, optional)
 src/findmejob/ui/        local web UI with chat (stdlib http.server)
-tests/         offline unit tests (stdlib unittest, no network)
+tests/         offline unit tests (stdlib unittest, no network; PDF text-extraction
+               tests skip when poppler-utils is not installed)
 ```
 
 ## License

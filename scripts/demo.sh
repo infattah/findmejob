@@ -31,4 +31,4 @@ echo '--- chat: what is pending ---'
 python3 -m findmejob.cli --dir "$DEMO_DIR" chat "what's pending"
 echo
 echo "Demo data in $DEMO_DIR (tailored CVs in output/cvs, emails in output/emails)"
-echo "Run the UI: PYTHONPATH=src python3 -m findmejob.cli --dir $DEMO_DIR ui"
+echo "Run the UI: findmejob --dir $DEMO_DIR ui"

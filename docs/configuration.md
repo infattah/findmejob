@@ -28,9 +28,10 @@ you prefer to edit by hand. JSON only; secrets never go here (they live in
   "AED"). Any code works; nothing is region-specific.
 - `exchange_rates` - optional map of currency code to its value in the base
   currency, e.g. {"AED": 0.27} when the base is USD. Only rates you supply
-  are used; without one, other-currency salaries fall back to a magnitude
-  heuristic and the reason says so. "$" alone is treated as ambiguous, not
-  assumed USD.
+  are used. Comparison is strict: a salary whose currency is unknown ("$"
+  alone is ambiguous, never assumed USD), whose pay period is unstated, or
+  which has no configured rate goes to review with the reason - raw
+  magnitudes are never compared across currencies or periods.
 - `locations_include` / `locations_exclude` - substring matches on the
   posting's location. Remote roles always pass location.
 - `sector_exclusions` - your own list of keywords to avoid. Empty by
