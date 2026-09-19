@@ -26,6 +26,7 @@ class JobPosting:
     apply_url: str = ""
     source_liveness: str = ""
     source_liveness_detail: str = ""
+    source_liveness_checked_at: float = 0.0
     id: str = ""
 
     def __post_init__(self) -> None:

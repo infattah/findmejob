@@ -50,8 +50,9 @@ _COMPANY_HISTORY_YEARS = re.compile(
 )
 
 _GENERIC_CAREER_YEARS = re.compile(
-    r"(?i)\b\d{1,2}\s*(?:\+|plus)?\s*years?\s+(?:(?:of\s+)?(?:professional |career |work )?experience|in marketing)\b"
+    r"(?i)\b\d{1,2}\s*(?:\+|plus)?\s*years?\s+(?:of\s+)?(?:professional |career |work )?experience\b"
 )
+
 _DOMAIN_EQUIVALENTS = (
     frozenset({"performance", "paid", "acquisition", "media"}),
     frozenset({"digital", "online"}),
@@ -376,8 +377,10 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
         # domain and tools separately. Combine only an explicitly generic career
         # duration with independently bounded domain evidence. A duration tied to
         # consumer retail or another domain is never transferable.
+        broad_profession = _year_domain_tokens(requirement)
         generic_numeric = [(years, fragment) for years, fragment in numeric
-                           if _GENERIC_CAREER_YEARS.search(fragment)]
+                           if _GENERIC_CAREER_YEARS.search(fragment)
+                           or (broad_profession and _grounded_domain(requirement, fragment))]
         if generic_numeric and domain_evidence:
             years, duration = max(generic_numeric, key=lambda item: item[0])
             return RequirementMatch(

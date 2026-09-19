@@ -88,7 +88,8 @@ def _description_similarity(a: str, b: str) -> float:
     left, right = clean(a), clean(b)
     if len(left) < 120 or len(right) < 120:
         return 0.0
-    return SequenceMatcher(None, left, right, autojunk=False).ratio()
+    return min(SequenceMatcher(None, left, right, autojunk=False).ratio(),
+               SequenceMatcher(None, right, left, autojunk=False).ratio())
 
 
 def _wrapper_duplicate(job: JobPosting, other: JobPosting) -> bool:
@@ -97,7 +98,7 @@ def _wrapper_duplicate(job: JobPosting, other: JobPosting) -> bool:
     a, b = signature(job), signature(other)
     if not a[1] or a[1] != b[1]: return False
     if a[2] and b[2] and a[2] != b[2]: return False
-    return _description_similarity(job.description, other.description) >= .88
+    return _description_similarity(job.description, other.description) >= .94
 
 
 def find_duplicate(job: JobPosting, candidates: Iterable[JobPosting]) -> Optional[JobPosting]:

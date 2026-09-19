@@ -106,3 +106,55 @@ class TrialSixReplayBenchmark(unittest.TestCase):
         self.assertEqual(0,result.zero_tolerance_failures)
 
 if __name__ == "__main__": unittest.main()
+
+class ReviewerRequestedDedupeRegressions(unittest.TestCase):
+    def test_wrapper_similarity_is_order_independent(self):
+        # This pair has enough repetitive structure to exercise SequenceMatcher's
+        # directional heuristics while representing the same underlying posting.
+        base=("Own paid media, growth campaigns, Meta, Google, CAC, ROAS, attribution, pipeline and reporting. "*5)
+        a=JobPosting(title="Performance and Growth Specialist",company="Recruiter A",location="Bahrain",url="https://a.test/1",description=base+"Apply through Recruiter A.")
+        b=JobPosting(title="Performance And Growth Specialist",company="Client B",location="Bahrain",url="https://b.test/2",description=base+"Apply through Client B.")
+        self.assertEqual(1,len(dedupe_batch([a,b])[0]))
+        self.assertEqual(1,len(dedupe_batch([b,a])[0]))
+
+    def test_same_title_city_and_recruiter_boilerplate_do_not_merge(self):
+        boiler=("Our recruiter supports leading clients and offers equal opportunity, benefits, interview support and application guidance. "*3)
+        a=JobPosting(title="Marketing Manager",company="Client A",location="Dubai",url="https://a.test/1",description=boiler+"Own retail loyalty, in-store promotions and franchise launches across the UAE.")
+        b=JobPosting(title="Marketing Manager",company="Client B",location="Dubai",url="https://b.test/2",description=boiler+"Own cybersecurity field events, channel partners and enterprise pipeline across META.")
+        self.assertEqual(2,len(dedupe_batch([a,b])[0]))
+        self.assertEqual(2,len(dedupe_batch([b,a])[0]))
+
+class ReviewerRequestedAshbyRefreshRegressions(unittest.TestCase):
+    def _job(self, status="alive", checked=1000.0):
+        return JobPosting(title="Marketing Lead",company="Acme",url="https://jobs.ashbyhq.com/acme/job-1",source="ashby:acme",apply_url="https://jobs.ashbyhq.com/acme/job-1/application",source_liveness=status,source_liveness_detail="Ashby fixture",source_liveness_checked_at=checked)
+
+    def test_fresh_hint_is_bounded_and_accepted(self):
+        called=[]
+        self.assertEqual("alive",check_job_liveness(self._job(),now=1100,json_opener=lambda *_: called.append(1))[0])
+        self.assertEqual([],called)
+
+    def test_stale_alive_hint_rechecks_and_observes_unlisted(self):
+        data={"jobs":[{"jobUrl":"https://jobs.ashbyhq.com/acme/job-1","isListed":False}]}
+        self.assertEqual("expired",check_job_liveness(self._job(),now=2000,json_opener=lambda *_:data)[0])
+
+    def test_stale_hint_rechecks_and_missing_job_is_expired(self):
+        self.assertEqual("expired",check_job_liveness(self._job(),now=2000,json_opener=lambda *_:{"jobs":[]})[0])
+
+    def test_stale_hint_rechecks_and_ambiguous_or_failure_is_unknown(self):
+        ambiguous={"jobs":[{"jobUrl":"https://jobs.ashbyhq.com/acme/job-1","isListed":True}]}
+        self.assertEqual("unknown",check_job_liveness(self._job(),now=2000,json_opener=lambda *_:ambiguous)[0])
+        def fail(*_): raise TimeoutError()
+        self.assertEqual("unknown",check_job_liveness(self._job(),now=2000,json_opener=fail)[0])
+
+class ProfessionNeutralTenureRegression(unittest.TestCase):
+    def test_overall_engineering_tenure_grounds_engineering_requirement(self):
+        profile=Profile(summary="Software engineer with 9+ years in software engineering overall. Python, distributed systems and cloud platforms.")
+        job=JobPosting(title="Senior Software Engineer",company="Acme",description="Requirements\n- 7+ years in software engineering")
+        item=evaluate_requirements(profile,job).items[0]
+        self.assertEqual("strong",item.status)
+        self.assertEqual(0,evaluate_requirements(profile,job).hard_missing)
+
+    def test_unrelated_engineering_tenure_does_not_ground_marketing(self):
+        profile=Profile(summary="Software engineer with 9+ years in software engineering overall.")
+        job=JobPosting(title="Marketing Manager",company="Acme",description="Requirements\n- 7+ years in marketing")
+        self.assertNotEqual("strong",evaluate_requirements(profile,job).items[0].status)

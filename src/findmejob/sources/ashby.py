@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
+import time
 
 from ..models import JobPosting
 from .base import http_json, strip_html
@@ -36,6 +37,7 @@ class AshbySource:
                 apply_url=(j.get("applyUrl") or "").strip(),
                 source_liveness=("alive" if j.get("isListed") is True and j.get("applyUrl")
                                  else "expired" if j.get("isListed") is False else ""),
+                source_liveness_checked_at=time.time(),
                 source_liveness_detail=(
                     "Ashby posting API: isListed=true and applyUrl present"
                     if j.get("isListed") is True and j.get("applyUrl") else
