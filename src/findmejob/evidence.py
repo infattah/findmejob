@@ -473,11 +473,23 @@ _NUMBER_WORD = r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twel
 _TENURE_PHRASE = re.compile(
     rf"(?i)(?:\b\d{{1,2}}\s*(?:\+|plus|or\s+more)?|\b{_NUMBER_WORD}\s*(?:plus|or\s+more)?)\s+years?\b"
 )
-_LOW_CONFIDENCE = re.compile(
-    r"(?i)\b(?:basic|limited|novic(?:e|es)|beginner(?:s)?|dabbl(?:e|ed|ing)|"
-    r"expos(?:ure|ed)|famili(?:ar|arity)|interested|some|vague|learning|aware(?:ness)?|"
-    r"introductor(?:y|ily)|working knowledge|high[- ]level (?:understanding|knowledge)|"
-    r"occasional(?:ly)? (?:use|used|using)|use(?:d)? [a-z0-9+#.]+ occasionally)\b"
+_EXPLICIT_STRONG = re.compile(
+    r"(?i)\b(?:certified|administrators?|admin|power\s+user|"
+    r"daily\s+hands[- ]on\s+use|hands[- ]on\s+(?:use|experience)|"
+    r"advanced\s+proficien(?:cy|t)|expert(?:ise)?)\b"
+)
+_WEAK_LEVEL = re.compile(
+    r"(?i)\b(?:basic|limited|minimal|light|novic(?:e|es)|beginner(?:s)?|"
+    r"introductor(?:y|ily)|high[- ]level|working\s+knowledge|"
+    r"famili(?:ar|arity)|aware(?:ness)?|some|vague)\b"
+)
+_WEAK_FREQUENCY = re.compile(r"(?i)\b(?:occasional(?:ly)?|sometimes?|rarely|seldom)\b")
+_WEAK_USE = re.compile(r"(?i)\b(?:use[ds]?|using|experience|knowledge|understanding)\b")
+_WEAK_EXPOSURE = re.compile(
+    r"(?i)\b(?:expos(?:ure|ed)|learn(?:ed|t|ing)?|stud(?:y|ied|ies|ying)|"
+    r"courses?|coursework|train(?:ed|ing|ings)|attend(?:ed|ing|s)?|"
+    r"explor(?:e|ed|es|ing|ation)|play(?:ed|ing|s)?|dabbl(?:e|ed|es|ing)|"
+    r"shadow(?:ed|ing|s)?|interested)\b"
 )
 _NEGATION = re.compile(
     r"(?i)\b(?:no|lack(?:s|ed|ing)?|never|not|without|do not|does not|did not|"
@@ -497,24 +509,47 @@ def _normalized_evidence(text: str) -> str:
     return re.sub(r"[^a-z0-9+#.]+", " ", normalized).strip()
 
 
-def _evidence_strength(fragment: str, component: str | None = None) -> str:
-    """Classify bounded evidence as strong, weak, or negated for a local claim."""
-    normalized = _normalized_evidence(fragment)
-    if _LOW_CONFIDENCE.search(normalized):
-        return "weak"
-    if component:
-        anchors = _tokens(component) - {"tools", "tool", "product", "experience"}
-        words = normalized.split()
-        for anchor in anchors:
-            positions = [i for i, word in enumerate(words) if word == anchor]
-            for pos in positions:
-                local = " ".join(words[max(0, pos - 4):pos + 5])
-                if _NEGATION.search(local):
-                    return "negated"
-    elif _NEGATION.search(normalized):
-        return "negated"
-    return "strong"
+def _local_claim_windows(normalized: str, component: str | None) -> list[str]:
+    """Return bounded phrase windows around the claimed skill.
 
+    Evidence strength belongs to the target claim, not the whole CV line. This
+    keeps an unrelated negative/weak claim from suppressing a separate strong
+    one while supporting order and punctuation variants around the target.
+    """
+    if not component:
+        return [normalized]
+    anchors = _tokens(component) - {"tools", "tool", "product", "experience"}
+    words = normalized.split()
+    windows: list[str] = []
+    for idx, word in enumerate(words):
+        if word in anchors:
+            windows.append(" ".join(words[max(0, idx - 6):idx + 7]))
+    return windows or [normalized]
+
+
+def _evidence_strength(fragment: str, component: str | None = None) -> str:
+    """Classify bounded, phrase-local evidence as strong, weak, or negated."""
+    # Preserve hard phrase boundaries before punctuation normalization so an
+    # unrelated weak/negative clause cannot contaminate the target claim.
+    raw_clauses = [part for part in re.split(r"[;.!?\n]+", fragment) if part.strip()]
+    anchors = _tokens(component or "") - {"tools", "tool", "product", "experience"}
+    clauses = [_normalized_evidence(part) for part in raw_clauses]
+    target_clauses = [part for part in clauses if not anchors or anchors & _tokens(part)]
+    windows = [window for part in (target_clauses or clauses)
+               for window in _local_claim_windows(part, component)]
+    for local in windows:
+        if _NEGATION.search(local):
+            return "negated"
+    # Uncertain exposure/training morphology fails closed even if the phrase
+    # also contains a role noun such as "administrator".
+    for local in windows:
+        if _WEAK_LEVEL.search(local) or _WEAK_EXPOSURE.search(local):
+            return "weak"
+        if _WEAK_FREQUENCY.search(local) and _WEAK_USE.search(local):
+            return "weak"
+    if any(_EXPLICIT_STRONG.search(local) for local in windows):
+        return "strong"
+    return "strong"
 
 def _compound_components(requirement: str) -> list[str]:
     """Return mandatory AND components for explicit proficiency compounds."""
@@ -634,6 +669,8 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
     best: tuple[int, str] = (0, "")
     for exp in profile.experiences:
         for bullet in [exp.role + " " + exp.company] + exp.bullets:
+            if _evidence_strength(bullet, requirement) != "strong":
+                continue
             overlap = len(req_tokens & _tokens(bullet))
             if overlap > best[0]:
                 best = (overlap, bullet.strip())

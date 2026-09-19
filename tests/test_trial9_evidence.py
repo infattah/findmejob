@@ -167,3 +167,49 @@ class StructuralEvidenceStrengthTests(unittest.TestCase):
                 self.assertEqual("strong", self.status(["HubSpot", "Product analytics tools: PostHog"], requirement))
                 self.assertEqual("missing", self.status(["HubSpot"], requirement))
                 self.assertEqual("missing", self.status(["Product analytics tools: PostHog"], requirement))
+
+class WeakEvidenceMorphologyTests(unittest.TestCase):
+    requirement = "Hands-on proficiency with HubSpot and product analytics tools"
+
+    def status(self, evidence):
+        return evaluate_requirements(
+            Profile(skills=[evidence, "Product analytics tools: PostHog"]),
+            JobPosting(title="T", company="C", description="Requirements\n- " + self.requirement),
+        ).items[0].status
+
+    def test_frequency_and_low_level_forms_fail_closed(self):
+        cases = (
+            "Occasional HubSpot use", "HUBSPOT - occasionally used",
+            "Sometimes used HubSpot", "HubSpot: rarely used", "Seldom using HubSpot",
+            "High-level HubSpot knowledge", "HubSpot knowledge, high level",
+            "Minimal HubSpot experience", "HubSpot experience: light",
+        )
+        for evidence in cases:
+            with self.subTest(evidence=evidence):
+                self.assertEqual("missing", self.status(evidence))
+
+    def test_training_and_exploratory_forms_fail_closed(self):
+        cases = (
+            "Studied HubSpot in a course", "HubSpot coursework", "Attended HubSpot training",
+            "Training attended: HUBSPOT", "Explored HubSpot", "HubSpot - exploring",
+            "Played with HubSpot", "HubSpot, played with", "Shadowed HubSpot administration",
+            "HubSpot administrators shadowed", "Attended certified HubSpot training",
+            "HubSpot certification coursework",
+        )
+        for evidence in cases:
+            with self.subTest(evidence=evidence):
+                self.assertEqual("missing", self.status(evidence))
+
+    def test_explicit_strong_forms_remain_strong(self):
+        cases = (
+            "HubSpot certified", "Certified HubSpot administrator", "HubSpot Administrator",
+            "HubSpot power user", "Daily hands-on use of HubSpot",
+            "Advanced proficiency in HubSpot",
+        )
+        for evidence in cases:
+            with self.subTest(evidence=evidence):
+                self.assertEqual("strong", self.status(evidence))
+
+    def test_unrelated_weak_claim_does_not_suppress_target(self):
+        self.assertEqual("strong", self.status("Rarely used Salesforce; HubSpot administrator"))
+        self.assertEqual("strong", self.status("Minimal Salesforce experience. HubSpot power user"))
