@@ -28,6 +28,25 @@ class TestScoring(unittest.TestCase):
         score = score_fit(self.profile, job, ["growth marketing"]).score
         self.assertTrue(0 <= score <= 100)
 
+    def test_single_generic_word_does_not_promote_adjacent_content_role(self):
+        job = JobPosting(
+            title="Content Automation Strategist", company="Ounass", location="Dubai",
+            description=("Own luxury bilingual editorial operations, Contentful workflows, "
+                         "content governance, taxonomy and publishing automation."),
+        )
+        result = score_fit(self.profile, job,
+                           ["growth marketing", "marketing automation", "digital marketing"])
+        self.assertLess(result.score, 45)
+        self.assertIn("adjacent", result.reasons[-1])
+
+    def test_full_target_phrase_keeps_strong_role_visible(self):
+        job = JobPosting(
+            title="Growth Marketing Manager (MEA)", company="iHerb", location="Dubai",
+            description="Lead paid media, ecommerce acquisition, lifecycle and regional growth strategy.",
+        )
+        result = score_fit(self.profile, job, ["growth marketing"])
+        self.assertTrue(any("title matches" in r for r in result.reasons))
+
 
 if __name__ == "__main__":
     unittest.main()
