@@ -467,11 +467,57 @@ def _profession_anchor(tokens: set[str]) -> str | None:
     return None
 
 
+
+_PROFICIENCY_CUE = re.compile(r"(?i)\b(hands-on proficiency|proficiency|proficient|expertise)\b")
+_WEAK_EVIDENCE = re.compile(r"(?i)\b(?:basic|exposure|familiar|interested|some|vague|learning)\b")
+
+
+def _compound_components(requirement: str) -> list[str]:
+    """Return mandatory AND components for explicit proficiency compounds."""
+    if not _PROFICIENCY_CUE.search(requirement) or not re.search(r"(?i)\band\b", requirement):
+        return []
+    if re.search(r"(?i)\b(?:or|preferred|optional|nice[- ]to[- ]have|bonus)\b", requirement):
+        return []
+    body = _PROFICIENCY_CUE.sub("", requirement, count=1)
+    body = re.sub(r"(?i)^\s*(?:with|in)\s+", "", body).strip(" .;,:-")
+    parts = [part.strip(" .;,:-") for part in re.split(r"(?i)\s+and\s+", body)]
+    return parts if len(parts) > 1 and all(_tokens(part) for part in parts) else []
+
+
+def _component_explicitly_grounded(component: str, fragment: str) -> bool:
+    want = _tokens(component) - {"tools", "tool", "product"}
+    got = _tokens(fragment)
+    if not want or _WEAK_EVIDENCE.search(fragment):
+        return False
+    # Product analytics needs an explicit analytics/tool context, not unrelated
+    # financial analytics or generic claims of tool use.
+    if "analytics" in _tokens(component):
+        if "analytics" not in got or not ({"product", "posthog", "ga4", "amplitude", "mixpanel"} & got):
+            return False
+    return want <= got or (want == {"analytics"} and "analytics" in got)
+
+
+def _match_compound(requirement: str, profile: Profile, hard: bool) -> RequirementMatch | None:
+    components = _compound_components(requirement)
+    if not components:
+        return None
+    fragments = _profile_evidence_fragments(profile)
+    evidence: list[str] = []
+    for component in components:
+        match = next((f for f in fragments if _component_explicitly_grounded(component, f)), None)
+        if not match:
+            return RequirementMatch(requirement, "missing", [], hard)
+        evidence.append(f"{component}: {match[:120]}")
+    return RequirementMatch(requirement, "strong", evidence, hard)
+
 def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
     hard = is_hard_requirement(requirement)
     language = _match_language(requirement, profile, hard)
     if language is not None:
         return language
+    compound = _match_compound(requirement, profile, hard)
+    if compound is not None:
+        return compound
     req_years = _required_years(requirement)
     if req_years is not None:
         # Multiple tenure gates must have been atomized by decomposition. An
