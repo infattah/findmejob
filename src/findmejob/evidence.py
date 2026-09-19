@@ -357,7 +357,10 @@ def evaluate_requirements(profile: Profile, job: JobPosting, max_items: int = 40
 
     max_items bounds reported soft detail only: it can never hide a hard
     requirement or leave an extracted requirement without a single evaluated
-    item. _ABSOLUTE_ITEM_BOUND is the pathological-input guard.
+    item. Pathological input is bounded upstream by extract_requirements: at
+    most 12 distinct source requirements of at most 300 characters each are
+    accepted. Within that finite set every hard decomposed clause is evaluated;
+    there is no first-come global item truncation.
     """
     report = FitReport(job.title, job.company)
     seen: set[str] = set()
@@ -379,12 +382,7 @@ def evaluate_requirements(profile: Profile, job: JobPosting, max_items: int = 40
             seen.add(key)
             report.items.append(item)
             represented = True
-            if len(report.items) >= _ABSOLUTE_ITEM_BOUND:
-                return report
     return report
-
-
-_ABSOLUTE_ITEM_BOUND = 200
 
 
 def render_report_markdown(report: FitReport, score: int | None = None, score_reasons: list[str] | None = None) -> str:

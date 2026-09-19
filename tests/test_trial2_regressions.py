@@ -205,6 +205,48 @@ class TrialTwoReviewStrictness(unittest.TestCase):
         self.assertTrue(items["Fluent written Arabic is required"].hard)
         self.assertGreaterEqual(report.hard_missing, 7)
 
+    def test_more_than_200_hard_atoms_never_drop_trailing_hard_requirement(self):
+        # Independent final-review boundary probe: ten valid source lines each
+        # decompose into one hard years gate plus twenty hard skill atoms. The
+        # old absolute 200-item early return stopped during line ten and hid
+        # the trailing fluent-Arabic hard requirement.
+        lines = ["Requirements"]
+        for line_no in range(10):
+            atoms = ", ".join(f"must S{line_no:02d}{atom_no:02d}" for atom_no in range(20))
+            line = f"- Requires {line_no + 2}+ years, {atoms}."
+            self.assertLessEqual(len(line.removeprefix("- ")), 300)
+            lines.append(line)
+        lines.append("- Fluent written Arabic is required.")
+        report = weak_evaluate("\n".join(lines), max_items=8)
+        items = by_text(report)
+        self.assertGreater(len(report.items), 200)
+        self.assertIn("Fluent written Arabic is required", items)
+        arabic = items["Fluent written Arabic is required"]
+        self.assertTrue(arabic.hard)
+        self.assertEqual(arabic.status, "missing")
+        # Every one of the 210 preceding hard clauses is evaluated too.
+        self.assertEqual(report.hard_missing, 211)
+
+    def test_low_soft_cap_bounds_detail_without_hiding_source_or_hard_items(self):
+        desc = ("Requirements\n"
+                "- Collaboration skills, communication skills, presentation skills.\n"
+                "- Requires 5+ years, Google Ads, MBA good to have.\n"
+                "- Fluent written Arabic is required.")
+        report = weak_evaluate(desc, max_items=1)
+        items = by_text(report)
+        # One representative survives for the soft-only source requirement;
+        # hard clauses from later sources remain visible beyond the soft cap.
+        self.assertIn("Collaboration skills, communication skills, presentation skills", items)
+        self.assertIn("Requires 5+ years", items)
+        self.assertIn("Fluent written Arabic is required", items)
+        self.assertTrue(items["Requires 5+ years"].hard)
+        self.assertTrue(items["Fluent written Arabic is required"].hard)
+
+    def test_ordinary_workload_stays_compact(self):
+        report = evaluate(CHAIN_REACTION_DESC)
+        self.assertLessEqual(len(report.items), 8)
+        self.assertEqual(report.hard_missing, 0)
+
     def test_numeric_threshold_years_stay_distinct(self):
         # Reviewer note: bare generic year heads with different thresholds
         # deduped into one item because the key ignored digits.
