@@ -32,10 +32,14 @@ def score_fit(profile: Profile, job: JobPosting, role_keywords: list[str] | None
     if skill_hits:
         reasons.append("skills matched: " + ", ".join(skill_hits[:8]))
 
+    # A single generic shared word (for example "automation" in a content-
+    # operations title) must not turn an adjacent role into a target-role hit.
+    # Require the complete normalized target phrase in the title.
+    title_text = " ".join(_TOKEN.findall(job.title.lower()))
     kw_hits = 0
     for kw in role_keywords or []:
-        kw_tok = _tokens(kw)
-        if kw_tok and kw_tok & title_tokens:
+        phrase = " ".join(_TOKEN.findall(kw.lower()))
+        if phrase and re.search(r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])", title_text):
             kw_hits += 1
     title_score = min(30, 15 * kw_hits)
     if kw_hits:
@@ -55,6 +59,12 @@ def score_fit(profile: Profile, job: JobPosting, role_keywords: list[str] | None
         loc_score = 5
 
     score = min(100, skill_score + title_score + ctx_score + loc_score)
+    if role_keywords and not kw_hits:
+        # Keep adjacent discoveries visible, but below the default actionable
+        # threshold. A reviewer may still inspect them; they are not promoted
+        # from generic skill overlap alone.
+        score = min(score, 44)
+        reasons.append("title is adjacent to, not a direct match for, target roles")
     if not reasons:
         reasons.append("little overlap between the role and the master CV")
     return FitScore(score=score, reasons=reasons)
