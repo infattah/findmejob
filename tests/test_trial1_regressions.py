@@ -12,6 +12,12 @@ from findmejob.tracker import Tracker
 
 
 class TrialOneRegressions(unittest.TestCase):
+
+    def test_domain_rules_do_not_change_discovery_input(self):
+        docs = (Path(__file__).parent.parent / "docs" / "configuration.md").read_text()
+        self.assertIn("start with simple target role names or keywords", docs)
+        self.assertIn("Those checks run after\ndiscovery", docs)
+
     def test_remote_india_does_not_bypass_uae_location(self):
         job = JobPosting(title="Growth Manager", company="Platinumlist", location="India", remote=True)
         result = check_job(job, {"locations_include": ["UAE", "Oman", "Qatar", "Saudi Arabia", "Remote"]})
@@ -19,11 +25,43 @@ class TrialOneRegressions(unittest.TestCase):
         self.assertIn("not in include list", result.reasons[0])
 
     def test_explicit_seven_years_satisfies_three_to_five(self):
-        profile = Profile(summary="Growth marketer with 7+ years of experience")
+        profile = Profile(summary="Growth marketer with 7+ years of performance marketing experience")
         job = JobPosting(title="Manager", company="Acme", description="Qualifications\n- Requires 3-5+ years of performance marketing experience")
         item = evaluate_requirements(profile, job).items[0]
         self.assertEqual(item.status, "strong")
         self.assertIn("7+ years", item.evidence[0])
+
+
+    def test_unrelated_domain_years_do_not_satisfy_b2b_saas_requirement(self):
+        profile = Profile(
+            summary="Growth marketer with 9+ years in consumer retail",
+            experiences=[Experience(role="Growth Lead", company="RetailCo",
+                                    bullets=["Led ecommerce acquisition and merchandising"])],
+        )
+        job = JobPosting(title="Demand Generation Lead", company="Acme",
+                         description="Requirements\n- 5+ years of B2B SaaS demand generation experience")
+        item = evaluate_requirements(profile, job).items[0]
+        self.assertTrue(item.hard)
+        self.assertEqual(item.status, "missing")
+
+    def test_matching_domain_years_satisfy_requirement(self):
+        profile = Profile(summary="7+ years of B2B SaaS demand generation experience")
+        job = JobPosting(title="Demand Generation Lead", company="Acme",
+                         description="Requirements\n- 5+ years of B2B SaaS demand generation experience")
+        item = evaluate_requirements(profile, job).items[0]
+        self.assertEqual(item.status, "strong")
+        self.assertIn("domain-matched", item.evidence[0])
+
+    def test_domain_evidence_without_numeric_years_is_partial(self):
+        profile = Profile(experiences=[Experience(
+            role="B2B SaaS Demand Generation Manager", company="Acme",
+            bullets=["Owned demand generation campaigns and pipeline programs"])])
+        job = JobPosting(title="Demand Generation Lead", company="NextCo",
+                         description="Requirements\n- 5+ years of B2B SaaS demand generation experience")
+        item = evaluate_requirements(profile, job).items[0]
+        self.assertTrue(item.hard)
+        self.assertEqual(item.status, "partial")
+        self.assertIn("without grounded duration", item.evidence[0])
 
     def test_hard_language_is_not_generic_partial(self):
         profile = Profile(summary="International marketer and team leader", education=[])
@@ -63,6 +101,10 @@ class TrialOneRegressions(unittest.TestCase):
             self.assertEqual(row["status"], "needs_input")
             self.assertIn("salary not stated", row["notes"])
             self.assertIn("hard requirement not proven", row["notes"])
+            pending = tracker.pending()
+            self.assertEqual(len(pending), 1)
+            self.assertIn("hard requirement not proven: Fluent written Arabic is required",
+                          pending[0]["question"])
             tracker.close()
 
 
