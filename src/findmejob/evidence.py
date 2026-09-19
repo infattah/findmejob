@@ -53,11 +53,11 @@ _GENERIC_CAREER_YEARS = re.compile(
     r"(?i)\b\d{1,2}\s*(?:\+|plus)?\s*years?\s+(?:of\s+)?(?:professional |career |work )?experience\b"
 )
 
-_DOMAIN_EQUIVALENTS = (
-    frozenset({"performance", "paid", "acquisition", "media"}),
-    frozenset({"digital", "online"}),
-    frozenset({"automation", "lifecycle", "crm"}),
-)
+_SUBDOMAIN_PATTERNS = {
+    "growth_marketing": re.compile(r"(?i)\b(?:growth|performance) marketing\b|\bpaid (?:acquisition|media)\b|\b(?:cac|ltv|roas|cpl)\b"),
+    "brand_campaign": re.compile(r"(?i)\bbrand (?:building|marketing|campaigns?)\b|\bintegrated (?:brand )?campaigns?\b|\bcampaign project management\b"),
+}
+
 
 
 def _tokens(text: str) -> set[str]:
@@ -166,6 +166,37 @@ def decompose_requirement(requirement: str) -> list[tuple[str, bool]]:
     become a hard gap nor soften a hard clause beside it.
     """
     sentences = _bounded_clauses(requirement)
+    # Protect numeric ranges from the generic hyphen separator.
+    range_requirement = re.sub(
+        r"(?<!\d)(\d{1,2})\s*[-–—]\s*(?=\d{1,2}\s*(?:\+|plus)?\s*years?)",
+        r"\1__RANGE__",
+        requirement,
+    )
+    # Every numeric tenure phrase owns its attached domain. Split at the join
+    # before each later years phrase so one duration can never be borrowed by
+    # another domain. If multiple phrases cannot be separated safely, the
+    # matcher below fails the unresolved compound closed.
+    # A range such as 3-5 years is one tenure phrase, not two atoms.
+    structural_requirement = range_requirement.replace("__RANGE__", "-")
+    year_occurrences = list(_YEARS.finditer(structural_requirement))
+    if len(year_occurrences) > 1:
+        atoms = [part.strip(" .;,:—-") for part in re.split(
+            r"(?i)\s*(?:,|;|[—-]|\b(?:with|and|alongside|together\s+with|combined\s+with|plus|as\s+well\s+as)\b)\s*(?=\d{1,2}\s*(?:\+|plus)?\s*years?)",
+            structural_requirement,
+        ) if part.strip(" .;,:—-")]
+        if len(atoms) == len(year_occurrences) and all(len(_YEARS.findall(atom)) == 1 for atom in atoms):
+            return [(atom, False) for atom in atoms]
+    # Language and non-language hard gates must remain independent across the
+    # conjunctions commonly used in listings. Split only when each side keeps
+    # a recognizable hard marker. Unrecognized joins remain a single compound,
+    # which the language matcher refuses to early-return as strong.
+    atoms = [part.strip(" .;,:—-") for part in re.split(
+        r"(?i)\s*(?:[&/:;,]|[—-]|\b(?:and|with|alongside|together\s+with|combined\s+with|plus|as\s+well\s+as)\b)\s*",
+        range_requirement,
+    ) if part.strip(" .;,:—-")]
+    atoms = [atom.replace("__RANGE__", "-") for atom in atoms]
+    if len(atoms) > 1 and all(_HARD.search(atom) for atom in atoms):
+        return [(atom, False) for atom in atoms]
     if len(sentences) <= 1 and "," not in requirement and not _PREFERRED.search(requirement):
         return [(requirement.strip(" .;,"), False)]
     items: list[tuple[str, bool]] = []
@@ -331,18 +362,18 @@ def _grounded_domain(requirement: str, fragment: str) -> bool:
     if re.search(r"\bor\b", requirement, re.I) and "marketing" in domain_terms:
         alternatives = domain_terms - {"marketing"}
         return "marketing" in fragment_tokens and bool(alternatives & fragment_tokens)
+    # Marketing subdomains require coherent phrases, even when their individual
+    # tokens overlap. This prevents "growth mindset and marketing" or unrelated
+    # brand/campaign/project mentions from passing as domain evidence.
+    frag_low = fragment.lower()
+    if ("growth" in domain_terms or "performance" in domain_terms) and "marketing" in domain_terms:
+        extras = domain_terms - {"growth", "performance", "marketing"}
+        return bool(_SUBDOMAIN_PATTERNS["growth_marketing"].search(frag_low)) and extras <= fragment_tokens
+    if "brand" in domain_terms and "marketing" in domain_terms:
+        extras = domain_terms - {"brand", "marketing", "campaign", "campaigns", "project", "management"}
+        return bool(_SUBDOMAIN_PATTERNS["brand_campaign"].search(frag_low)) and extras <= fragment_tokens
     ratio = overlap / len(domain_terms)
-    if overlap >= 1 if len(domain_terms) == 1 else overlap >= 2 and ratio >= .5:
-        return True
-    # Job ads and CVs often use performance-marketing vocabulary interchangeably
-    # (paid acquisition, paid media, performance marketing). This equivalence is
-    # deliberately narrow and still requires a complete bounded CV fragment.
-    for family in _DOMAIN_EQUIVALENTS:
-        if domain_terms & family and fragment_tokens & family:
-            residual = domain_terms - family - {"marketing", "management"}
-            if not residual or bool(residual & fragment_tokens):
-                return True
-    return False
+    return bool(overlap >= 1 if len(domain_terms) == 1 else overlap >= 2 and ratio >= .5)
 
 
 def _domain_overlap(requirement: str, fragment: str) -> tuple[int, float]:
@@ -353,10 +384,101 @@ def _domain_overlap(requirement: str, fragment: str) -> tuple[int, float]:
     return overlap, overlap / len(req_tokens)
 
 
+_LANG_LEVEL = r"fluent|professional working proficiency|working proficiency|professional proficiency|native|bilingual"
+_LANG_MODS = r"(?:(?:both\s+)?(?:written|spoken)(?:\s+and\s+(?:written|spoken))?\s+)"
+_LANG_PATTERNS = (
+    # "spoken fluent English", "fluent in written English"
+    re.compile(rf"(?i)\b(?P<mods1>{_LANG_MODS})?(?P<level>{_LANG_LEVEL})\s+(?:in\s+)?(?P<mods2>{_LANG_MODS})?(?P<language>[a-z]+)\b"),
+    # "English written and spoken fluent", "English: fluent"
+    re.compile(rf"(?i)\b(?P<language>[a-z]+)\s*[-:]?\s*(?P<mods1>{_LANG_MODS})?(?P<level>{_LANG_LEVEL})\b"),
+)
+
+
+def _language_phrases(text: str) -> list[tuple[str, str, set[str], tuple[int, int]]]:
+    """Parse language, level, and modality from one locally bound phrase."""
+    found: list[tuple[str, str, set[str], tuple[int, int]]] = []
+    occupied: list[tuple[int, int]] = []
+    for pattern in _LANG_PATTERNS:
+        for match in pattern.finditer(text):
+            span = match.span()
+            if match.group("language").lower() in {"professional", "working", "written", "spoken", "both", "in"}:
+                continue
+            if any(span[0] < end and start < span[1] for start, end in occupied):
+                continue
+            mods = {value.lower() for value in re.findall(
+                r"(?i)\b(written|spoken)\b",
+                (match.groupdict().get("mods1") or "") + " "
+                + (match.groupdict().get("mods2") or ""),
+            )}
+            found.append((
+                match.group("language").lower(),
+                match.group("level").lower(),
+                mods,
+                span,
+            ))
+            occupied.append(span)
+    return sorted(found, key=lambda item: item[3][0])
+
+
+def _match_language(requirement: str, profile: Profile, hard: bool) -> RequirementMatch | None:
+    targets = _language_phrases(requirement)
+    if not targets:
+        return None
+    # Never let one recognized language phrase hide another hard constraint.
+    # Decomposition handles known conjunctions; any remaining text must be only
+    # harmless requirement wording/punctuation or the compound stays unresolved.
+    residual = requirement
+    for _, _, _, (start, end) in reversed(targets):
+        residual = residual[:start] + " " + residual[end:]
+    residual = re.sub(r"(?i)\b(?:must|required|requirement|language|proficiency|in)\b", " ", residual)
+    residual = re.sub(r"[\s:().,;/-]+", "", residual)
+    if residual or len(targets) != 1:
+        return None
+    language, level, required_mods, _ = targets[0]
+    candidates: list[tuple[str, str, set[str]]] = []
+    for fragment in _profile_evidence_fragments(profile):
+        for ev_language, ev_level, evidence_mods, _ in _language_phrases(fragment):
+            if ev_language != language:
+                continue
+            if evidence_mods:
+                expected = required_mods or {"written", "spoken"}
+                if not expected <= evidence_mods:
+                    continue
+            if level in {"native", "bilingual"} and ev_level not in {"native", "bilingual"}:
+                continue
+            candidates.append((fragment, ev_level, evidence_mods))
+    if not candidates:
+        return RequirementMatch(requirement, "missing", [], hard)
+    evidence = candidates[0][0]
+    return RequirementMatch(
+        requirement,
+        "strong",
+        [f"explicit language evidence: {evidence[:140]}"],
+        hard,
+    )
+
+
+def _profession_anchor(tokens: set[str]) -> str | None:
+    # Profession-level anchors can donate overall tenure only when the CV and
+    # requirement share the same anchor. Subdomain evidence is still required.
+    for anchor in ("marketing", "engineering", "sales", "design", "finance", "operations"):
+        if anchor in tokens:
+            return anchor
+    return None
+
+
 def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
     hard = is_hard_requirement(requirement)
+    language = _match_language(requirement, profile, hard)
+    if language is not None:
+        return language
     req_years = _required_years(requirement)
     if req_years is not None:
+        # Multiple tenure gates must have been atomized by decomposition. An
+        # unresolved compound is never eligible for a strong years match.
+        structural_requirement = re.sub(r"(?<!\d)\d{1,2}\s*[-–—]\s*(?=\d{1,2}\s*(?:\+|plus)?\s*years?)", "", requirement)
+        if len(_YEARS.findall(structural_requirement)) != 1:
+            return RequirementMatch(requirement, "missing", [], hard)
         fragments = _profile_evidence_fragments(profile)
         domain_terms = _year_domain_tokens(requirement)
         numeric = [(years, fragment) for fragment in fragments
@@ -378,9 +500,10 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
         # duration with independently bounded domain evidence. A duration tied to
         # consumer retail or another domain is never transferable.
         broad_profession = _year_domain_tokens(requirement)
+        anchor = _profession_anchor(broad_profession)
         generic_numeric = [(years, fragment) for years, fragment in numeric
                            if _GENERIC_CAREER_YEARS.search(fragment)
-                           or (broad_profession and _grounded_domain(requirement, fragment))]
+                           or (anchor and anchor in _tokens(fragment))]
         if generic_numeric and domain_evidence:
             years, duration = max(generic_numeric, key=lambda item: item[0])
             return RequirementMatch(
