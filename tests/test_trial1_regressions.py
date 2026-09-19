@@ -44,6 +44,38 @@ class TrialOneRegressions(unittest.TestCase):
         self.assertTrue(item.hard)
         self.assertEqual(item.status, "missing")
 
+    def test_same_summary_separate_claims_do_not_bleed_domain(self):
+        profile = Profile(summary="9+ years in consumer retail. B2B SaaS demand generation specialist.")
+        job = JobPosting(title="Lead", company="Acme", description="Requirements\n- 5+ years of B2B SaaS demand generation")
+        self.assertEqual(evaluate_requirements(profile, job).items[0].status, "partial")
+
+    def test_same_raw_line_separate_claims_do_not_bleed_domain(self):
+        profile = Profile(raw_text="9+ years in consumer retail. B2B SaaS demand generation specialist.")
+        job = JobPosting(title="Lead", company="Acme", description="Requirements\n- 5+ years of B2B SaaS demand generation")
+        self.assertEqual(evaluate_requirements(profile, job).items[0].status, "partial")
+
+    def test_role_context_does_not_donate_domain_to_numeric_bullet(self):
+        profile = Profile(experiences=[Experience(role="B2B SaaS Demand Generation Lead", company="Acme", bullets=["9+ years in consumer retail"])])
+        job = JobPosting(title="Lead", company="NextCo", description="Requirements\n- 5+ years of B2B SaaS demand generation")
+        self.assertEqual(evaluate_requirements(profile, job).items[0].status, "partial")
+
+    def test_split_requirement_keeps_domain_attached_to_years(self):
+        profile = Profile(summary="9+ years in consumer retail")
+        job = JobPosting(title="Lead", company="Acme", description="Requirements\n- 5+ years of experience. B2B SaaS demand generation expertise required")
+        item = evaluate_requirements(profile, job).items[0]
+        self.assertTrue(item.hard)
+        self.assertEqual(item.status, "missing")
+
+    def test_matching_domain_in_one_clause_remains_strong(self):
+        profile = Profile(summary="7+ years in B2B SaaS demand generation. Also led retail projects.")
+        job = JobPosting(title="Lead", company="Acme", description="Requirements\n- 5+ years of B2B SaaS demand generation")
+        self.assertEqual(evaluate_requirements(profile, job).items[0].status, "strong")
+
+    def test_role_domain_without_tied_duration_preserves_recall(self):
+        profile = Profile(experiences=[Experience(role="B2B SaaS Demand Generation Lead", company="Acme", bullets=["Owned pipeline and lifecycle programs"])])
+        job = JobPosting(title="Lead", company="NextCo", description="Requirements\n- 5+ years of B2B SaaS demand generation")
+        self.assertEqual(evaluate_requirements(profile, job).items[0].status, "partial")
+
     def test_matching_domain_years_satisfy_requirement(self):
         profile = Profile(summary="7+ years of B2B SaaS demand generation experience")
         job = JobPosting(title="Demand Generation Lead", company="Acme",

@@ -17,7 +17,10 @@ _STOP = {"the", "and", "for", "with", "you", "your", "our", "are", "will", "that
 
 
 def _tokens(text: str) -> set[str]:
-    tokens = {t for t in _TOKEN.findall(text.lower()) if t not in _STOP}
+    # Period is valid inside tokens such as framework names, but sentence-final
+    # punctuation must not turn "experience." into a fake domain term.
+    tokens = {clean for raw in _TOKEN.findall(text.lower())
+              if (clean := raw.strip(".")) and clean not in _STOP}
     # Small lexical normalization keeps ordinary CV wording aligned without
     # turning unrelated domains into matches.
     if "marketer" in tokens or "marketers" in tokens:
@@ -104,28 +107,52 @@ def _max_years(text: str) -> int | None:
     return max(values) if values else None
 
 
+def _bounded_clauses(text: str) -> list[str]:
+    """Split prose where separate claims stop sharing evidence context."""
+    return [part.strip() for part in re.split(r"(?<=[.!?;])\s+|[;]", text)
+            if part.strip()]
+
+
 def _profile_evidence_fragments(profile: Profile) -> list[str]:
-    """Return CV facts in bounded fragments so years keep their domain context."""
-    fragments = [profile.headline, profile.summary]
+    """Return sentence/clause-bounded CV facts without context donation."""
+    fragments: list[str] = []
+    for prose in (profile.headline, profile.summary):
+        fragments.extend(_bounded_clauses(prose))
     fragments.extend(profile.skills)
     for exp in profile.experiences:
-        context = f"{exp.role} {exp.company}"
+        # A role/company heading is useful domain evidence on its own, but must
+        # not be prepended to every bullet: that would lend its domain tokens to
+        # an unrelated numeric duration in the bullet.
+        context = f"{exp.role} {exp.company}".strip()
         fragments.append(context)
-        fragments.extend(f"{context}: {bullet}" for bullet in exp.bullets)
-    # Free-form CVs may not parse into structured fields. Keep line boundaries so
-    # a years claim in one section cannot qualify an unrelated domain elsewhere.
-    fragments.extend(line.strip() for line in profile.raw_text.splitlines())
+        for bullet in exp.bullets:
+            for clause in _bounded_clauses(bullet):
+                fragments.append(clause)
+                # "did X for N years" explicitly ties the duration to this
+                # experience entry. A bare "N years in other-domain" does not.
+                if re.search(r"\bfor\s+\d{1,2}\s*(?:\+|plus)?\s*years?\b", clause, re.I):
+                    fragments.append(f"{context}: {clause}")
+    # Free-form CV lines can contain several sentences. Bound those sentences too.
+    for line in profile.raw_text.splitlines():
+        fragments.extend(_bounded_clauses(line))
     return [fragment for fragment in fragments if fragment]
 
 
 def _year_domain_tokens(requirement: str) -> set[str]:
-    # Requirements are sometimes extracted as long sentences containing duties
-    # plus one years clause. Bind the number to that clause and, for generic
-    # "growth or performance marketing" wording, retain the domain alternatives.
-    clauses = re.split(r"[.;]|\b(?:and|but)\b", requirement, flags=re.I)
-    clause = next((part for part in clauses if _YEARS.search(part)), requirement)
-    tokens = _tokens(_YEARS.sub("", clause))
-    return tokens - {"requires", "require", "minimum"}
+    # Bind years to their own clause when it names a domain. If that clause is
+    # generic ("5+ years of experience"), carry the domain from the adjacent
+    # requirement sentence so split wording remains one domain-specific gate.
+    clauses = _bounded_clauses(requirement)
+    year_clause = next((part for part in clauses if _YEARS.search(part)), requirement)
+    generic = {"requires", "require", "required", "minimum"}
+    year_tokens = _tokens(_YEARS.sub("", year_clause)) - generic
+    if year_tokens:
+        return year_tokens
+    adjacent_tokens: set[str] = set()
+    for clause in clauses:
+        if clause != year_clause:
+            adjacent_tokens.update(_tokens(clause))
+    return adjacent_tokens - generic
 
 
 def _grounded_domain(requirement: str, fragment: str) -> bool:
