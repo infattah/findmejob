@@ -7,7 +7,7 @@ the main agent, which batches them into the pending list.
 
 Worker kinds:
   source    - pull roles from configured sources into the tracker
-  verify    - re-check that a role page is still live
+  verify    - re-check the role page and record evidence-backed company/route research
   tailor    - produce a tailored CV + short email draft
   apply     - browser-assisted application (dry-run unless approved)
   evidence  - collect screenshots/files for a job into the evidence folder
