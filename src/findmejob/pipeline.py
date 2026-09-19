@@ -113,9 +113,10 @@ def run_triage(cfg: Config, tracker: Tracker) -> dict[str, Any]:
         if verdict == "review" or hard_reasons:
             policy_reasons = check_job(job, cfg.policy).reasons if verdict == "review" else []
             tracker.set_status(job.id, "needs_input", "; ".join(policy_reasons + hard_reasons))
+            review_reasons = policy_reasons + hard_reasons
             tracker.add_pending(
-                f"Review policy question for {job.title} @ {job.company}: "
-                + "; ".join(check_job(job, cfg.policy).reasons), job_id=job.id)
+                f"Review needed for {job.title} @ {job.company}: "
+                + "; ".join(review_reasons), job_id=job.id)
             needs += 1
         elif fit.score >= min_score:
             tracker.conn.execute("UPDATE jobs SET score=?, status='shortlisted', updated=? WHERE id=?",
