@@ -2,6 +2,11 @@
 
 Policy is yours: salary floor, locations, sectors to exclude, titles to skip.
 A job is "pass", "review" (a human should look), or "block".
+
+Salary floors are compared in the policy's own currency. With
+policy.exchange_rates configured ({currency: units of base per 1 unit}),
+any stated salary is annualized and converted strictly; without rates the
+legacy magnitude heuristic is used and the reason says so.
 """
 from __future__ import annotations
 
@@ -9,6 +14,7 @@ import re
 from typing import Any
 
 from .models import JobPosting, PolicyResult
+from .salary import normalize, parse_salary
 
 _SALARY_NUM = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(k)?", re.IGNORECASE)
 
@@ -59,11 +65,30 @@ def check_job(job: JobPosting, policy: dict[str, Any]) -> PolicyResult:
 
     floor = int(policy.get("salary_floor") or 0)
     if floor > 0:
-        low = parse_salary_floor(job.salary_text or "")
-        if low is not None and low < floor:
-            reasons.append(f"salary {low} below floor {floor}")
-        elif low is None:
-            reasons.append("salary not stated; cannot verify floor")
+        reasons.extend(_salary_reasons(job, policy, floor))
 
     verdict = "pass" if not reasons else "review"
     return PolicyResult(verdict, reasons)
+
+
+def _salary_reasons(job: JobPosting, policy: dict[str, Any], floor: int) -> list[str]:
+    base = (policy.get("currency") or "").upper()
+    rates = {k.upper(): float(v) for k, v in (policy.get("exchange_rates") or {}).items()}
+    salary = parse_salary(job.salary_text or "")
+    if salary is None:
+        return ["salary not stated; cannot verify floor"]
+    norm = normalize(salary, base, rates)
+    if norm.converted and norm.annual_min is not None:
+        shown = int(norm.annual_min)
+        if shown < floor:
+            return [f"salary {shown} {base or salary.currency}/yr below floor {floor}"]
+        return []
+    # strict comparison impossible: fall back to the legacy heuristic and
+    # say so, so a configured floor still filters obvious mismatches
+    low = parse_salary_floor(job.salary_text or "")
+    if low is not None and low < floor:
+        return [f"salary ~{low}/yr below floor {floor} (heuristic; "
+                + (norm.notes[-1] if norm.notes else "not normalized") + ")"]
+    if low is None:
+        return ["salary not stated; cannot verify floor"]
+    return []

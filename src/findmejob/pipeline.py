@@ -5,12 +5,16 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config
+from .dedupe import dedupe_batch
 from .emailer import save_draft
+from .httpcache import HttpCache
 from .models import JobPosting, Profile
 from .policy import check_job
 from .profile import parse_master_cv, extract_text
+from .render.pdf import render_cv_pdf
 from .scoring import score_fit
 from .sources import fetch_all
+from .sources.base import configure_cache
 from .tailor import check_fidelity, render_cv_markdown
 from .tracker import Tracker
 
@@ -30,6 +34,16 @@ def load_profile(cfg: Config) -> Profile:
     return profile
 
 
+def _build_cache(cfg: Config) -> HttpCache | None:
+    ttl = cfg.search.get("cache_ttl_seconds")
+    if ttl is None:
+        ttl = 3600  # caching is on by default; set 0 to disable
+    ttl = int(ttl)
+    if ttl <= 0:
+        return None
+    return HttpCache(cfg.resolve(cfg.paths.get("cache", "data/http-cache")), ttl)
+
+
 def run_search(cfg: Config, tracker: Tracker) -> dict[str, Any]:
     # Source paths in config.json are relative to the project root, not the
     # shell's current directory. This keeps --dir and the web UI consistent.
@@ -39,9 +53,24 @@ def run_search(cfg: Config, tracker: Tracker) -> dict[str, Any]:
         if spec.get("type") == "jsonfile" and spec.get("path"):
             spec["path"] = str(cfg.resolve(spec["path"]))
         specs.append(spec)
-    jobs, errors = fetch_all(specs)
-    new_count = 0
-    for job in jobs:
+    cache = _build_cache(cfg)
+    configure_cache(cache)
+    try:
+        jobs, errors = fetch_all(specs)
+    finally:
+        configure_cache(None)
+
+    # cross-source dedupe: within this batch, then against the tracker
+    unique, batch_dupes = dedupe_batch(jobs)
+    new_count = dup_count = 0
+    for job in unique:
+        existing = tracker.find_duplicate_job(job)
+        if existing is not None:
+            if tracker.add_link(existing.id, job.source, job.url):
+                tracker.add_event(existing.id, "duplicate",
+                                  f"also seen at {job.source}: {job.url}")
+                dup_count += 1
+            continue
         verdict = check_job(job, cfg.policy)
         status = "new"
         if verdict.verdict == "block":
@@ -50,8 +79,16 @@ def run_search(cfg: Config, tracker: Tracker) -> dict[str, Any]:
             new_count += 1
             if verdict.verdict == "block":
                 tracker.add_event(job.id, "policy_block", "; ".join(verdict.reasons))
-    tracker.add_event(None, "search", f"{len(jobs)} fetched, {new_count} new, {len(errors)} source errors")
-    return {"fetched": len(jobs), "new": new_count, "errors": errors}
+    for kept, dupe in batch_dupes:
+        if tracker.add_link(kept.id, dupe.source, dupe.url):
+            tracker.add_event(kept.id, "duplicate",
+                              f"also seen at {dupe.source}: {dupe.url}")
+            dup_count += 1
+    tracker.add_event(None, "search",
+                      f"{len(jobs)} fetched, {new_count} new, {dup_count} duplicates merged, "
+                      f"{len(errors)} source errors")
+    return {"fetched": len(jobs), "new": new_count, "duplicates": dup_count,
+            "errors": errors}
 
 
 def run_triage(cfg: Config, tracker: Tracker) -> dict[str, Any]:
@@ -64,6 +101,7 @@ def run_triage(cfg: Config, tracker: Tracker) -> dict[str, Any]:
         if not job:
             continue
         fit = score_fit(profile, job, role_keywords)
+        _write_fit_report(cfg, tracker, profile, job, fit)
         verdict = row["policy_verdict"] or "pass"
         if verdict == "review":
             tracker.set_status(job.id, "needs_input", "; ".join(check_job(job, cfg.policy).reasons))
@@ -84,6 +122,20 @@ def run_triage(cfg: Config, tracker: Tracker) -> dict[str, Any]:
     return {"shortlisted": shortlisted, "needs_review": needs, "below_floor": blocked}
 
 
+def _write_fit_report(cfg: Config, tracker: Tracker, profile: Profile,
+                      job: JobPosting, fit) -> None:
+    from .evidence import evaluate_requirements, render_report_markdown
+    report = evaluate_requirements(profile, job)
+    fit_dir = cfg.output_dir / "fit"
+    fit_dir.mkdir(parents=True, exist_ok=True)
+    (fit_dir / f"{job.id}.md").write_text(
+        render_report_markdown(report, fit.score, fit.reasons), encoding="utf-8")
+    if report.items:
+        tracker.add_event(job.id, "fit_report",
+                          f"{report.strong} strong / {report.partial} partial / "
+                          f"{report.missing} missing of {len(report.items)}")
+
+
 def run_tailor(cfg: Config, tracker: Tracker, job_query: str) -> dict[str, Any]:
     profile = load_profile(cfg)
     job_id = tracker.resolve_job_id(job_query)
@@ -98,8 +150,9 @@ def run_tailor(cfg: Config, tracker: Tracker, job_query: str) -> dict[str, Any]:
     safe = "".join(c if c.isalnum() else "_" for c in f"{profile.full_name}_{job.company}_{job.title}")[:80]
     cv_path = cv_dir / f"{safe}_{job.id}.md"
     cv_path.write_text(cv_md, encoding="utf-8")
-    email_path = save_draft(cfg.output_dir / "emails", profile, job, cfg, attachment=cv_path)
+    pdf_path = render_cv_pdf(profile, job, cv_dir / f"{safe}_{job.id}.pdf")
+    email_path = save_draft(cfg.output_dir / "emails", profile, job, cfg, attachment=pdf_path)
     tracker.set_status(job.id, "tailored", f"CV: {cv_path.name}")
     tracker.add_event(job.id, "tailor", f"fidelity warnings: {len(warnings)}")
-    return {"job_id": job.id, "cv": str(cv_path), "email": str(email_path),
-            "fidelity_warnings": warnings}
+    return {"job_id": job.id, "cv": str(cv_path), "pdf": str(pdf_path),
+            "email": str(email_path), "fidelity_warnings": warnings}

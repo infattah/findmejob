@@ -94,6 +94,7 @@ def load_config(root: Path | None = None) -> Config:
 
 def scaffold(root: Path) -> list[str]:
     """Create config.json and directory scaffold. Returns created paths."""
+    root.mkdir(parents=True, exist_ok=True)
     created: list[str] = []
     example = root / "config.example.json"
     target = root / DEFAULT_CONFIG_NAME

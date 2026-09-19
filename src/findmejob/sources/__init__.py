@@ -18,6 +18,12 @@ def build_source(spec: dict[str, Any]):
     if stype == "lever":
         from .lever import LeverSource
         return LeverSource(spec)
+    if stype == "ashby":
+        from .ashby import AshbySource
+        return AshbySource(spec)
+    if stype == "smartrecruiters":
+        from .smartrecruiters import SmartRecruitersSource
+        return SmartRecruitersSource(spec)
     if stype == "workable":
         from .workable import WorkableSource
         return WorkableSource(spec)

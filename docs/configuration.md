@@ -1,7 +1,9 @@
 # Configuration (config.json)
 
-`findmejob init` creates config.json from config.example.json. JSON only;
-secrets never go here (they live in .env).
+`findmejob setup` writes config.json by asking plain questions - no JSON
+editing required. `findmejob init` instead copies config.example.json if
+you prefer to edit by hand. JSON only; secrets never go here (they live in
+.env). `findmejob doctor` checks the result and says what is missing.
 
 ## profile
 
@@ -14,12 +16,21 @@ secrets never go here (they live in .env).
 - `role_keywords` - titles you want, e.g. ["growth marketing", "performance
   marketing"]. Used for scoring.
 - `sources` - list of source specs. See docs/sources.md for every type.
+- `cache_ttl_seconds` (default 3600) - how long a fetched source response is
+  reused before revalidation. 0 disables caching. See docs/sources.md.
 
 ## policy
 
 - `salary_floor` - yearly number in `currency`. Roles with a stated salary
   below the floor go to review; roles with no salary are flagged, not
   blocked.
+- `currency` - the base currency for salary comparisons (e.g. "USD", "EUR",
+  "AED"). Any code works; nothing is region-specific.
+- `exchange_rates` - optional map of currency code to its value in the base
+  currency, e.g. {"AED": 0.27} when the base is USD. Only rates you supply
+  are used; without one, other-currency salaries fall back to a magnitude
+  heuristic and the reason says so. "$" alone is treated as ambiguous, not
+  assumed USD.
 - `locations_include` / `locations_exclude` - substring matches on the
   posting's location. Remote roles always pass location.
 - `sector_exclusions` - your own list of keywords to avoid. Empty by
@@ -42,5 +53,5 @@ secrets never go here (they live in .env).
 
 ## paths
 
-- `db`, `output`, `browser_profile` - where state, artifacts and the
-  persistent browser profile live. All are gitignored.
+- `db`, `output`, `browser_profile`, `cache` - where state, artifacts, the
+  persistent browser profile and the HTTP cache live. All are gitignored.

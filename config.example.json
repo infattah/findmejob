@@ -26,6 +26,14 @@
         "company": "exampleco"
       },
       {
+        "type": "ashby",
+        "board": "exampleco"
+      },
+      {
+        "type": "smartrecruiters",
+        "company": "exampleco"
+      },
+      {
         "type": "rss",
         "url": "https://example.com/jobs.xml",
         "name": "example-feed"
@@ -34,7 +42,8 @@
         "type": "jsonfile",
         "path": "sample_data/sample_jobs.json"
       }
-    ]
+    ],
+    "cache_ttl_seconds": 3600
   },
   "policy": {
     "salary_floor": 0,
@@ -51,7 +60,8 @@
       "intern",
       "unpaid"
     ],
-    "min_fit_score": 45
+    "min_fit_score": 45,
+    "exchange_rates": {}
   },
   "autonomy": {
     "auto_apply": false,
@@ -72,6 +82,7 @@
   "paths": {
     "db": "data/findmejob.db",
     "output": "output",
-    "browser_profile": "data/browser-profile"
+    "browser_profile": "data/browser-profile",
+    "cache": "data/http-cache"
   }
 }
