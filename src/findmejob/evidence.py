@@ -166,17 +166,37 @@ def decompose_requirement(requirement: str) -> list[tuple[str, bool]]:
     become a hard gap nor soften a hard clause beside it.
     """
     sentences = _bounded_clauses(requirement)
+    # Protect numeric ranges from the generic hyphen separator.
+    range_requirement = re.sub(
+        r"(?<!\d)(\d{1,2})\s*[-–—]\s*(?=\d{1,2}\s*(?:\+|plus)?\s*years?)",
+        r"\1__RANGE__",
+        requirement,
+    )
+    # Every numeric tenure phrase owns its attached domain. Split at the join
+    # before each later years phrase so one duration can never be borrowed by
+    # another domain. If multiple phrases cannot be separated safely, the
+    # matcher below fails the unresolved compound closed.
+    # A range such as 3-5 years is one tenure phrase, not two atoms.
+    structural_requirement = range_requirement.replace("__RANGE__", "-")
+    year_occurrences = list(_YEARS.finditer(structural_requirement))
+    if len(year_occurrences) > 1:
+        atoms = [part.strip(" .;,:—-") for part in re.split(
+            r"(?i)\s*(?:,|;|[—-]|\b(?:with|and|alongside|together\s+with|combined\s+with|plus|as\s+well\s+as)\b)\s*(?=\d{1,2}\s*(?:\+|plus)?\s*years?)",
+            structural_requirement,
+        ) if part.strip(" .;,:—-")]
+        if len(atoms) == len(year_occurrences) and all(len(_YEARS.findall(atom)) == 1 for atom in atoms):
+            return [(atom, False) for atom in atoms]
     # Language and non-language hard gates must remain independent across the
     # conjunctions commonly used in listings. Split only when each side keeps
     # a recognizable hard marker. Unrecognized joins remain a single compound,
     # which the language matcher refuses to early-return as strong.
-    if re.search(r"(?i)\b(?:fluent|native|bilingual|proficiency)\b", requirement):
-        atoms = [part.strip(" .;,") for part in re.split(
-            r"(?i)\s*(?:[&/;,]|\b(?:and|plus|as\s+well\s+as)\b)\s*",
-            requirement,
-        ) if part.strip(" .;,")]
-        if len(atoms) > 1 and all(_HARD.search(atom) for atom in atoms):
-            return [(atom, False) for atom in atoms]
+    atoms = [part.strip(" .;,:—-") for part in re.split(
+        r"(?i)\s*(?:[&/:;,]|[—-]|\b(?:and|with|alongside|together\s+with|combined\s+with|plus|as\s+well\s+as)\b)\s*",
+        range_requirement,
+    ) if part.strip(" .;,:—-")]
+    atoms = [atom.replace("__RANGE__", "-") for atom in atoms]
+    if len(atoms) > 1 and all(_HARD.search(atom) for atom in atoms):
+        return [(atom, False) for atom in atoms]
     if len(sentences) <= 1 and "," not in requirement and not _PREFERRED.search(requirement):
         return [(requirement.strip(" .;,"), False)]
     items: list[tuple[str, bool]] = []
@@ -347,9 +367,11 @@ def _grounded_domain(requirement: str, fragment: str) -> bool:
     # brand/campaign/project mentions from passing as domain evidence.
     frag_low = fragment.lower()
     if ("growth" in domain_terms or "performance" in domain_terms) and "marketing" in domain_terms:
-        return bool(_SUBDOMAIN_PATTERNS["growth_marketing"].search(frag_low))
+        extras = domain_terms - {"growth", "performance", "marketing"}
+        return bool(_SUBDOMAIN_PATTERNS["growth_marketing"].search(frag_low)) and extras <= fragment_tokens
     if "brand" in domain_terms and "marketing" in domain_terms:
-        return bool(_SUBDOMAIN_PATTERNS["brand_campaign"].search(frag_low))
+        extras = domain_terms - {"brand", "marketing", "campaign", "campaigns", "project", "management"}
+        return bool(_SUBDOMAIN_PATTERNS["brand_campaign"].search(frag_low)) and extras <= fragment_tokens
     ratio = overlap / len(domain_terms)
     return bool(overlap >= 1 if len(domain_terms) == 1 else overlap >= 2 and ratio >= .5)
 
@@ -445,37 +467,6 @@ def _profession_anchor(tokens: set[str]) -> str | None:
     return None
 
 
-def _years_have_unconsumed_hard_text(requirement: str) -> bool:
-    """Fail closed when a years atom still contains another hard constraint.
-
-    Known conjunctions are decomposed before matching. If a compound reaches
-    the years matcher, strip only years boilerplate and test the remainder for
-    independent hard markers. This is connector-agnostic by design: new prose
-    or punctuation cannot make the years evidence hide fluent/native language,
-    B2B, SaaS, or another explicit threshold.
-    """
-    residual = _YEARS.sub(" ", requirement)
-    residual = re.sub(
-        r"(?i)\b(?:minimum|at least|requires?|required|must|experience|of|in)\b",
-        " ",
-        residual,
-    )
-    if re.search(r"(?i)\b(?:fluent|native|bilingual|proficien(?:t|cy)|\d+\s*(?:\+|plus)?\s*years?)\b", residual):
-        return True
-    # B2B/SaaS immediately bound after "years of/in" are legitimate domain
-    # modifiers. They are residual only before the years phrase, or after an
-    # already established domain phrase such as "growth marketing".
-    b2b = re.search(r"(?i)\b(?:b2b|saas)\b", requirement)
-    years = _YEARS.search(requirement)
-    if b2b and years:
-        if b2b.start() < years.start():
-            return True
-        between = requirement[years.end():b2b.start()]
-        if _tokens(between) - {"of", "in"}:
-            return True
-    return False
-
-
 def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
     hard = is_hard_requirement(requirement)
     language = _match_language(requirement, profile, hard)
@@ -483,7 +474,10 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
         return language
     req_years = _required_years(requirement)
     if req_years is not None:
-        if _years_have_unconsumed_hard_text(requirement):
+        # Multiple tenure gates must have been atomized by decomposition. An
+        # unresolved compound is never eligible for a strong years match.
+        structural_requirement = re.sub(r"(?<!\d)\d{1,2}\s*[-–—]\s*(?=\d{1,2}\s*(?:\+|plus)?\s*years?)", "", requirement)
+        if len(_YEARS.findall(structural_requirement)) != 1:
             return RequirementMatch(requirement, "missing", [], hard)
         fragments = _profile_evidence_fragments(profile)
         domain_terms = _year_domain_tokens(requirement)

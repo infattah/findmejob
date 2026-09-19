@@ -93,9 +93,9 @@ class MixedHardSeparatorRegressions(unittest.TestCase):
                 self.assertTrue(any("5 years" in item.requirement and item.status != "strong" for item in report.items))
                 self.assertGreaterEqual(report.hard_missing, 1)
 
-    def test_unknown_conjunction_keeps_compound_unresolved(self):
+    def test_additional_conjunction_preserves_both_atoms(self):
         report = self.report("Fluent English alongside 5 years of growth marketing")
-        self.assertEqual(0, report.strong)
+        self.assertTrue(any("5 years" in item.requirement and item.status != "strong" for item in report.items))
         self.assertGreaterEqual(report.hard_missing, 1)
 
 
@@ -152,8 +152,8 @@ class ConnectorAgnosticResidualRegressions(unittest.TestCase):
             ):
                 with self.subTest(requirement=requirement):
                     report = self.report(summary, requirement)
-                    self.assertEqual(0, report.strong)
-                    self.assertGreaterEqual(report.hard_missing, 1)
+                    self.assertEqual(2, len(report.items))
+                    self.assertEqual(2, report.strong)
 
     def test_nonlanguage_residual_blocks_years_strong_in_both_orders(self):
         summary = "7+ years in growth marketing. B2B SaaS experience."
@@ -164,8 +164,8 @@ class ConnectorAgnosticResidualRegressions(unittest.TestCase):
             ):
                 with self.subTest(requirement=requirement):
                     report = self.report(summary, requirement)
-                    self.assertEqual(0, report.strong)
-                    self.assertGreaterEqual(report.hard_missing, 1)
+                    self.assertEqual(2, len(report.items))
+                    self.assertEqual(2, report.strong)
 
 
 class CapitalizedModalityRegressions(unittest.TestCase):
@@ -181,3 +181,51 @@ class CapitalizedModalityRegressions(unittest.TestCase):
     def test_capitalized_modalities_still_do_not_cross(self):
         self.assertEqual("missing", self.status("English: Spoken fluent.", "Written fluent English"))
         self.assertEqual("missing", self.status("English: Written fluent.", "Spoken fluent English"))
+
+class MultipleYearsStructuralRegressions(unittest.TestCase):
+    cases = (
+        "2 years in a B2B SaaS environment with 5 years of growth marketing",
+        "3 years of B2B SaaS alongside 5 years of growth marketing",
+        "3 years of B2B SaaS with 5 years of growth marketing",
+    )
+
+    def report(self, requirement, summary="5+ years of growth marketing."):
+        return evaluate_requirements(
+            Profile(summary=summary),
+            JobPosting(title="T", company="C", description="Requirements\n- " + requirement),
+        )
+
+    def test_missing_b2b_is_preserved_in_both_orders_and_join_variants(self):
+        joins = ("with", "and", "-", "alongside")
+        domains = ("2 years in a B2B SaaS environment", "3 years of B2B SaaS")
+        for domain in domains:
+            for join in joins:
+                for requirement in (
+                    f"{domain} {join} 5 years of growth marketing",
+                    f"5 years of growth marketing {join} {domain}",
+                ):
+                    with self.subTest(requirement=requirement):
+                        report = self.report(requirement)
+                        self.assertTrue(any("B2B" in item.requirement and item.status != "strong" for item in report.items))
+                        self.assertGreaterEqual(report.hard_missing, 1)
+
+    def test_exact_review_cases_remain_missing_without_b2b(self):
+        for requirement in self.cases:
+            with self.subTest(requirement=requirement):
+                self.assertGreaterEqual(self.report(requirement).hard_missing, 1)
+
+    def test_each_tenure_atom_requires_its_own_domain_evidence(self):
+        requirement = "3 years of B2B SaaS with 5 years of growth marketing"
+        growth_only = self.report(requirement)
+        self.assertEqual(["missing", "strong"], [item.status for item in growth_only.items])
+        both = self.report(requirement, "3+ years of B2B SaaS experience. 5+ years of growth marketing.")
+        self.assertEqual(["strong", "strong"], [item.status for item in both.items])
+
+    def test_true_single_domain_requirement_still_passes(self):
+        report = self.report("5 years of growth marketing")
+        self.assertEqual("strong", report.items[0].status)
+
+    def test_unseparated_multiple_years_fail_closed(self):
+        report = self.report("3 years of B2B SaaS then 5 years of growth marketing")
+        self.assertEqual(0, report.strong)
+        self.assertGreaterEqual(report.hard_missing, 1)
