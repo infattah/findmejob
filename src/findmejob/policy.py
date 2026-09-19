@@ -37,7 +37,7 @@ _BOILERPLATE_START = re.compile(
 _SECTOR_CONCEPTS: dict[str, tuple[str, ...]] = {
     "forex trading": ("foreign exchange", "fx", "cross-border payment", "cross border payment",
                       "currency exchange", "currency conversion", "remittance",
-                      "payment transaction"),
+                      "payment transaction", "payroll services", "corporate payments", "card services"),
     "capital markets": ("investment platform", "wealth management", "digital wealth",
                         "brokerage", "trading platform"),
     "wealth": ("wealth management", "digital wealth", "investment platform"),
@@ -56,7 +56,7 @@ _PROVIDER_CUSTOMER_CONTEXT = re.compile(
 )
 _FOREX_RESTRICTED_PHRASE = (
     r"\b(?:foreign exchange|fx|cross[- ]border payments?|currency (?:exchange|conversion)|"
-    r"remittances?|payment transactions?|payment processing)\b"
+    r"remittances?|payment transactions?|payment processing|payroll services?|corporate payments?|card services?)\b"
 )
 _FOREX_BUSINESS_NOUN = r"\b(?:compan(?:y|ies)|business(?:es)?|fintechs?|platforms?|providers?|services?|networks?)\b"
 _PAYMENT_TRANSACTION_ANALYTICS = re.compile(

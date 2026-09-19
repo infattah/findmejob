@@ -261,6 +261,14 @@ def cmd_tick(args) -> int:
     return 0
 
 
+def cmd_benchmark(args) -> int:
+    import json
+    from .benchmark import run_benchmark
+    result = run_benchmark(args.fixture)
+    print(json.dumps(result.to_dict(), indent=2))
+    return 1 if result.mismatches or result.zero_tolerance_failures else 0
+
+
 def cmd_runtimes(args) -> int:
     from .runtimes import detect_runtimes, select_runtime
     cfg = load_config(Path(args.dir) if args.dir else None)
@@ -302,6 +310,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("chat", help="talk to the main agent"); p.add_argument("message", nargs="*"); p.set_defaults(fn=cmd_chat)
     p = sub.add_parser("tick", help="run queued worker tasks"); p.set_defaults(fn=cmd_tick)
     p = sub.add_parser("runtimes", help="list agent runtimes and capabilities"); p.set_defaults(fn=cmd_runtimes)
+    p = sub.add_parser("benchmark", help="run an offline labeled qualification benchmark")
+    p.add_argument("--fixture", required=True); p.set_defaults(fn=cmd_benchmark)
     p = sub.add_parser("pack", help="build a full application pack for a role")
     p.add_argument("--job", required=True); p.set_defaults(fn=cmd_pack)
     p = sub.add_parser("refresh", help="re-check tracked listings")
