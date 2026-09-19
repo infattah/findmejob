@@ -158,3 +158,47 @@ class ProfessionNeutralTenureRegression(unittest.TestCase):
         profile=Profile(summary="Software engineer with 9+ years in software engineering overall.")
         job=JobPosting(title="Marketing Manager",company="Acme",description="Requirements\n- 7+ years in marketing")
         self.assertNotEqual("strong",evaluate_requirements(profile,job).items[0].status)
+
+class FinalReviewDedupeAdversarialRegressions(unittest.TestCase):
+    def _pair(self):
+        template=("Our recruiter supports leading clients. Equal opportunity, application guidance and interview support. "*8)
+        retail=("Own retail loyalty campaigns, in-store promotions, franchise launches, shopper marketing, merchandising and store traffic across the UAE. "*3)
+        cyber=("Own cybersecurity field events, enterprise channel partners, MSSP pipeline, security buyer campaigns, partner enablement and threat research webinars. "*3)
+        a=JobPosting(title="Marketing Manager",company="Same Employer",location="Dubai",url="https://ats.test/req-101",description=template+retail)
+        b=JobPosting(title="Marketing Manager",company="Same Employer",location="Dubai",url="https://ats.test/req-202",description=template+cyber)
+        return a,b
+
+    def test_same_employer_title_location_distinct_requisitions_stay_separate_both_orders(self):
+        a,b=self._pair()
+        self.assertEqual(2,len(dedupe_batch([a,b])[0]))
+        self.assertEqual(2,len(dedupe_batch([b,a])[0]))
+
+    def test_long_recruiter_template_cannot_swamp_retail_vs_cybersecurity_duties(self):
+        a,b=self._pair()
+        self.assertIsNone(__import__("findmejob.dedupe",fromlist=["find_duplicate"]).find_duplicate(a,[b]))
+        self.assertIsNone(__import__("findmejob.dedupe",fromlist=["find_duplicate"]).find_duplicate(b,[a]))
+
+class FinalReviewAshbyMalformedPayloadRegressions(unittest.TestCase):
+    def _stale(self,checked=1000):
+        return JobPosting(title="Role",company="Acme",url="https://jobs.ashbyhq.com/acme/job-1",source="ashby:acme",source_liveness="alive",source_liveness_detail="old",source_liveness_checked_at=checked)
+
+    def test_error_and_malformed_payloads_are_unknown(self):
+        shapes=({"error":"rate limited"},{"jobs":None},[],{"jobs":"bad"},{"jobs":[None]})
+        for payload in shapes:
+            with self.subTest(payload=payload):
+                self.assertEqual("unknown",check_job_liveness(self._stale(),now=2000,json_opener=lambda *_,p=payload:p)[0])
+
+    def test_transport_and_api_failures_are_unknown(self):
+        import urllib.error
+        for error in (TimeoutError(),urllib.error.HTTPError("u",429,"rate",{},None),ValueError("bad json")):
+            def fail(*_,e=error): raise e
+            with self.subTest(error=type(error).__name__):
+                self.assertEqual("unknown",check_job_liveness(self._stale(),now=2000,json_opener=fail)[0])
+
+    def test_future_dated_hint_is_not_trusted(self):
+        payload={"jobs":[{"jobUrl":"https://jobs.ashbyhq.com/acme/job-1","isListed":False}]}
+        self.assertEqual("expired",check_job_liveness(self._stale(checked=3000),now=2000,json_opener=lambda *_:payload)[0])
+
+    def test_only_valid_board_omission_can_expire(self):
+        self.assertEqual("expired",check_job_liveness(self._stale(),now=2000,json_opener=lambda *_:{"jobs":[]})[0])
+        self.assertEqual("unknown",check_job_liveness(self._stale(),now=2000,json_opener=lambda *_:{"error":"rate limited"})[0])

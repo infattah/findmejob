@@ -91,8 +91,15 @@ def _ashby_refresh(job, json_opener=None, timeout: int = 15) -> tuple[str, str]:
         return "unknown", f"Ashby posting API HTTP {exc.code}"
     except Exception as exc:
         return "unknown", f"Ashby posting API check failed: {exc.__class__.__name__}"
-    target = canonical = getattr(job, "url", "").rstrip("/").lower()
-    match = next((j for j in data.get("jobs", [])
+    if not isinstance(data, dict) or set(data) == {"error"}:
+        return "unknown", "Ashby posting API: malformed or error payload"
+    jobs = data.get("jobs")
+    if not isinstance(jobs, list) or not all(isinstance(item, dict) for item in jobs):
+        return "unknown", "Ashby posting API: malformed jobs payload"
+    canonical = getattr(job, "url", "").rstrip("/").lower()
+    if not canonical:
+        return "unknown", "Ashby posting API: tracked job URL unavailable"
+    match = next((j for j in jobs
                   if (j.get("jobUrl") or "").rstrip("/").lower() == canonical), None)
     if match is None:
         return "expired", "Ashby posting API: job no longer listed on board"
@@ -112,7 +119,8 @@ def check_job_liveness(job, opener: Optional[Opener] = None, timeout: int = 15,
     detail = getattr(job, "source_liveness_detail", "")
     checked = float(getattr(job, "source_liveness_checked_at", 0) or 0)
     if str(getattr(job, "source", "")).startswith("ashby:"):
-        if hint in {"alive", "expired"} and detail and checked and now - checked <= hint_max_age:
+        if (hint in {"alive", "expired"} and detail and checked
+                and 0 <= now - checked <= hint_max_age):
             return hint, detail
         return _ashby_refresh(job, json_opener=json_opener, timeout=timeout)
     return check_listing(getattr(job, "url", ""), opener=opener, timeout=timeout)

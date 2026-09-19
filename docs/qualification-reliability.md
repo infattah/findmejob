@@ -42,3 +42,7 @@ Report actionable precision and recall as exact numerators/denominators, full de
 `run_triage` now builds signals from the posting, CV evidence, configured policy, persisted company verification, persisted listing liveness, salary and location. The tracker stores both normalized signals and the six-outcome result. Refresh persists each liveness result and recomputes decisions. Tailoring and application packs require a persisted `strong` decision.
 
 The signal-only benchmark isolates the decision ladder. The replay benchmark also exercises signal production from curated posting/profile/state records. Both are regression suites, not evidence of real-world reliability; field precision and recall still require fresh labeled trials.
+
+## Trials 1-6 replay regression
+
+`tests/fixtures/trials_1_6_replay.json` is a small deterministic regression fixture. Run it with `python -m findmejob.benchmark --replay tests/fixtures/trials_1_6_replay.json`. Its reported precision and recall describe only those curated fixture rows. They are not estimates of field precision, field recall, or general reliability. Only fresh, independently labeled staging trials can measure field behavior.

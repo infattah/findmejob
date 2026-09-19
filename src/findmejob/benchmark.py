@@ -1,4 +1,4 @@
-"""Offline labeled benchmark for qualification changes."""
+"""Offline deterministic regression benchmark; never field-performance evidence."""
 from __future__ import annotations
 
 import json
@@ -38,8 +38,9 @@ class BenchmarkResult:
         return {
             "total": self.total, "correct": self.correct,
             "accuracy": round(self.accuracy, 4),
-            "actionable_precision": round(self.actionable_precision, 4),
-            "actionable_recall": round(self.actionable_recall, 4),
+            "fixture_actionable_precision": round(self.actionable_precision, 4),
+            "fixture_actionable_recall": round(self.actionable_recall, 4),
+            "scope_note": "curated regression fixture only; not field precision or recall",
             "zero_tolerance_failures": self.zero_tolerance_failures,
             "mismatches": list(self.mismatches),
         }
@@ -96,7 +97,7 @@ def run_replay_benchmark(path: str | Path) -> BenchmarkResult:
 
 def main(argv=None) -> int:
     import argparse
-    parser = argparse.ArgumentParser(description="Run a labeled qualification benchmark")
+    parser = argparse.ArgumentParser(description="Run a deterministic labeled regression fixture (not field reliability evidence)")
     parser.add_argument("fixture")
     parser.add_argument("--replay", action="store_true", help="derive signals through the real adapter before scoring")
     args = parser.parse_args(argv)

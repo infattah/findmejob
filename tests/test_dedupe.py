@@ -58,8 +58,9 @@ class TestSignature(unittest.TestCase):
 
 class TestBatchDedupe(unittest.TestCase):
     def test_merges_same_role_across_sources(self):
-        a = job(source="greenhouse:acme", url="https://boards.greenhouse.io/acme/j/1")
-        b = job(source="remotive:x", url="https://remotive.com/jobs/9", location="Dubai, UAE")
+        desc = ("Own paid media campaigns, Google Ads, Meta Ads, CAC, ROAS, attribution, pipeline and reporting. " * 4)
+        a = job(source="greenhouse:acme", url="https://boards.greenhouse.io/acme/j/1", description=desc)
+        b = job(source="remotive:x", url="https://remotive.com/jobs/9", location="Dubai, UAE", description=desc)
         c = job(title="Other Role")
         unique, dupes = dedupe_batch([a, b, c])
         self.assertEqual(len(unique), 2)
@@ -82,9 +83,9 @@ class TestTrackerLinks(unittest.TestCase):
                          [{"source": "remotive", "url": "https://r.com/1"}])
 
     def test_find_duplicate_job_against_tracker(self):
-        existing = job(url="https://boards.greenhouse.io/acme/j/1")
+        existing = job(url="https://boards.greenhouse.io/acme/j/1", description=("Own paid media, Google Ads, Meta Ads, CAC, ROAS, attribution, pipeline and reporting. " * 4))
         self.tracker.upsert_job(existing)
-        dupe = job(source="remotive", url="https://remotive.com/j/9", location="Dubai, AE")
+        dupe = job(source="remotive", url="https://remotive.com/j/9", location="Dubai, AE", description=existing.description)
         found = self.tracker.find_duplicate_job(dupe)
         self.assertIsNotNone(found)
         self.assertEqual(found.id, existing.id)
