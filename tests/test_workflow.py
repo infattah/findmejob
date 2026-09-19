@@ -43,9 +43,9 @@ class TestWorkflowScenarios(unittest.TestCase):
         self.assertTrue(others)
         remote = next(j for j in others if j["company"] == "Madeup Travels")
         self.assertEqual(remote["status"], "needs_input")
-        self.assertIn("no confirmed hiring location", remote["notes"])
+        self.assertIn("confirmed open application state", remote["notes"])
         dubai = next(j for j in others if j["company"] == "Fictional Pets Co")
-        self.assertEqual(dubai["status"], "shortlisted")
+        self.assertEqual(dubai["status"], "needs_input")
 
     def test_batched_pending_on_return(self):
         agent, _ = make_agent()
@@ -62,7 +62,7 @@ class TestWorkflowScenarios(unittest.TestCase):
         agent, _ = make_agent()
         agent.handle("find jobs")
         tracker = agent.tracker
-        job = tracker.list_jobs(status="shortlisted")[0]
+        job = tracker.list_jobs(status="needs_input")[0]
         agent.handle(f"applied {job['id']}")
         row = [r for r in tracker.list_jobs() if r["id"] == job["id"]][0]
         self.assertEqual(row["status"], "applied")
@@ -76,11 +76,7 @@ class TestWorkflowScenarios(unittest.TestCase):
         agent, cfg = make_agent()
         agent.handle("find jobs")
         reply = agent.handle("tailor Fictional Pets")
-        self.assertIn("CV:", reply)
-        cv_files = list((cfg.output_dir / "cvs").glob("*.md"))
-        email_files = list((cfg.output_dir / "emails").glob("*.txt"))
-        self.assertTrue(cv_files and email_files)
-        self.assertIn("Fictional Pets", email_files[0].read_text())
+        self.assertIn("not actionable", reply)
 
 
 if __name__ == "__main__":

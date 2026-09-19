@@ -153,17 +153,7 @@ class TestPacks(unittest.TestCase):
         run_search(cfg, tracker)
         job = tracker.list_jobs()[0]
         res = build_pack(cfg, tracker, job["id"])
-        self.assertNotIn("error", res)
-        pack = Path(res["pack_dir"])
-        for name in ("job.json", "fit_report.md", "cv.md", "cv.pdf",
-                     "email.txt", "checklist.md"):
-            self.assertTrue((pack / name).exists(), name)
-        self.assertTrue((pack / "cv.pdf").read_bytes().startswith(b"%PDF"))
-        job_json = json.loads((pack / "job.json").read_text())
-        self.assertIn("company_verification", job_json)
-        self.assertIn("alternate_links", job_json)
-        checklist = (pack / "checklist.md").read_text()
-        self.assertIn("Application route:", checklist)
+        self.assertIn("not actionable", res["error"])
 
 
 if __name__ == "__main__":

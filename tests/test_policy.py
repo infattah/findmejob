@@ -69,7 +69,7 @@ class TestContextualSectorPolicy(unittest.TestCase):
             title="Growth & Marketing Manager", company="Verto",
             description="Our B2B fintech platform provides FX and cross-border payments with currency conversion.",
         )
-        result = check_job(job, {"sector_exclusions": ["forex trading"]})
+        result = check_job(job, {"sector_exclusions": ["forex trading", "money transfer", "payment processing", "payroll services", "corporate payments", "card services"]})
         self.assertEqual(result.verdict, "block")
         self.assertIn("business context", result.reasons[0])
 
@@ -91,7 +91,7 @@ class TestSectorBoundaryRegressions(unittest.TestCase):
     def test_neutral_fx_budgeting_is_not_forex_business(self):
         job = JobPosting(title="Retail Marketing Manager", company="Neutral Retail",
                          description="Lead campaigns and account for FX and currency conversion in campaign budgets.")
-        self.assertEqual(check_job(job, {"sector_exclusions": ["forex trading"]}).verdict, "pass")
+        self.assertEqual(check_job(job, {"sector_exclusions": ["forex trading", "money transfer", "payment processing", "payroll services", "corporate payments", "card services"]}).verdict, "pass")
 
     def test_hotel_technology_words_do_not_override_direct_hotel_identity(self):
         job = JobPosting(title="Marketing Manager", company="Grand Hotel",
@@ -112,7 +112,7 @@ class TestForexProviderPhrasing(unittest.TestCase):
     def check(self, description, company="Acme"):
         job = JobPosting(title="Growth Marketing Manager", company=company, location="Dubai",
                          description=description)
-        return check_job(job, {"sector_exclusions": ["forex trading"]}).verdict
+        return check_job(job, {"sector_exclusions": ["forex trading", "money transfer", "payment processing", "payroll services", "corporate payments", "card services"]}).verdict
 
     def test_provider_for_foreign_exchange_blocks(self):
         # Exact independent-review probe wording.
@@ -174,7 +174,7 @@ class TestForexProviderPhrasing(unittest.TestCase):
 class TestTrialFourSectorRegressions(unittest.TestCase):
     def check(self, title, company, description):
         return check_job(JobPosting(title=title, company=company, description=description),
-                         {"sector_exclusions": ["forex trading", "hotel", "hospitality"]})
+                         {"sector_exclusions": ["forex trading", "money transfer", "payment processing", "payroll services", "corporate payments", "card services", "hotel", "hospitality"]})
 
     def test_astra_remittance_role_blocks(self):
         result = self.check(
@@ -219,7 +219,7 @@ class TestTrialFourSectorRegressions(unittest.TestCase):
         self.assertEqual(result.verdict, "block")
 
 class TestTrialFourIndependentReviewPaymentBoundaries(unittest.TestCase):
-    policy = {"sector_exclusions": ["forex trading"]}
+    policy = {"sector_exclusions": ["forex trading", "money transfer", "payment processing", "payroll services", "corporate payments", "card services"]}
 
     def verdict(self, title, company, description):
         return check_job(JobPosting(title=title, company=company, description=description), self.policy).verdict
@@ -260,7 +260,7 @@ class TestTrialFourIndependentReviewPaymentBoundaries(unittest.TestCase):
                 self.assertEqual(self.verdict("Growth Manager", "Transfer Co", description), "block")
 
 class TestTrialFourIndependentReviewPaymentBoundaries(unittest.TestCase):
-    policy = {"sector_exclusions": ["forex trading"]}
+    policy = {"sector_exclusions": ["forex trading", "money transfer", "payment processing", "payroll services", "corporate payments", "card services"]}
 
     def verdict(self, title, company, description):
         return check_job(JobPosting(title=title, company=company, description=description), self.policy).verdict
@@ -289,7 +289,7 @@ class TestTrialFourIndependentReviewPaymentBoundaries(unittest.TestCase):
 
 
 class TestFinalReviewPaymentAndHotelBoundaries(unittest.TestCase):
-    forex = {"sector_exclusions": ["forex trading"]}
+    forex = {"sector_exclusions": ["forex trading", "money transfer", "payment processing", "payroll services", "corporate payments", "card services"]}
 
     def verdict(self, description, title="Role", company="Data Co", policy=None):
         job = JobPosting(title=title, company=company, description=description)
@@ -367,3 +367,10 @@ class TestHotelTitleCustomerVerticalBoundary(unittest.TestCase):
             description="We use a SaaS platform serving hotels and hospitality operators.",
         )
         self.assertEqual(check_job(job, self.policy).verdict, "block")
+
+class TestSeparateBusinessCategories(unittest.TestCase):
+    def test_forex_does_not_silently_include_payroll_or_cards(self):
+        job = JobPosting(title="Marketing Manager", company="Benefits Co",
+                         description="We provide payroll services and card services to employers.")
+        self.assertEqual("pass", check_job(job, {"sector_exclusions": ["forex trading"]}).verdict)
+        self.assertEqual("block", check_job(job, {"sector_exclusions": ["payroll services"]}).verdict)

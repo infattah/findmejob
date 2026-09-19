@@ -34,10 +34,10 @@ you prefer to edit by hand. JSON only; secrets never go here (they live in
   magnitudes are never compared across currencies or periods.
 - `locations_include` / `locations_exclude` - substring matches on the
   posting's location. Remote roles always pass location.
-- `sector_exclusions` - your own list of keywords to avoid. Empty by
+- `sector_exclusions` - your own list of business categories to avoid. Categories stay separate: for example `forex trading`, `money transfer`, `payment processing`, `payroll services`, `corporate payments`, and `card services` are not silent aliases of one another. Empty by
   default; the product ships no judgments.
 - `title_exclude` - e.g. ["intern"].
-- `min_fit_score` - 0-100; roles below it are parked, not shortlisted.
+- Fit scores are diagnostic ranking aids only. Actionability comes from the evidence-gated six-outcome qualification decision; there is no numeric score threshold that can make a role actionable. Legacy `min_fit_score` values are ignored and can be removed.
 
 ## autonomy
 

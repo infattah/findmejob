@@ -110,49 +110,35 @@ def _has_substantive_job_evidence(job: JobPosting) -> bool:
     return signals >= 2
 
 
-def run_triage(cfg: Config, tracker: Tracker) -> dict[str, Any]:
+def run_triage(cfg: Config, tracker: Tracker, job_id: str | None = None) -> dict[str, Any]:
+    from .evidence import evaluate_requirements
+    from .qualification import qualify
+    from .signal_adapter import build_signals
     profile = load_profile(cfg)
-    role_keywords = cfg.search.get("role_keywords", [])
-    min_score = int(cfg.policy.get("min_fit_score", 0))
-    shortlisted = blocked = needs = 0
-    for row in tracker.list_jobs(status="new"):
-        job = tracker.get_job(row["id"])
-        if not job:
+    counts = {"strong": 0, "plausible": 0, "insufficient_evidence": 0,
+              "policy_review": 0, "stale": 0, "reject": 0}
+    for row in tracker.list_jobs():
+        if job_id is not None and row["id"] != job_id:
             continue
-        fit = score_fit(profile, job, role_keywords)
-        from .evidence import evaluate_requirements
-        evidence = evaluate_requirements(profile, job)
-        # Persist ranking independently of policy review. Salary uncertainty must
-        # never erase fit metadata.
+        if row["status"] == "applied":
+            continue
+        job = tracker.get_job(row["id"])
+        if not job: continue
+        fit = score_fit(profile, job, cfg.search.get("role_keywords", []))
+        report = evaluate_requirements(profile, job)
         tracker.conn.execute("UPDATE jobs SET score=?, updated=? WHERE id=?", (fit.score, __import__("time").time(), job.id))
         tracker.conn.commit()
-        _write_fit_report(cfg, tracker, profile, job, fit, evidence)
-        verdict = row["policy_verdict"] or "pass"
-        hard_reasons = [f"hard requirement not proven: {i.requirement}" for i in evidence.items if i.hard and i.status != "strong"]
-        # A title-only listing cannot support an actionable recommendation.
-        # Judge completeness from substantive signals, not arbitrary length.
-        evidence_poor = not _has_substantive_job_evidence(job)
-        if verdict == "review" or hard_reasons or evidence_poor:
-            policy_reasons = check_job(job, cfg.policy).reasons if verdict == "review" else []
-            if evidence_poor:
-                policy_reasons.append("insufficient job evidence; official listing lacks substantive role details")
-            tracker.set_status(job.id, "needs_input", "; ".join(policy_reasons + hard_reasons))
-            review_reasons = policy_reasons + hard_reasons
-            tracker.add_pending(
-                f"Review needed for {job.title} @ {job.company}: "
-                + "; ".join(review_reasons), job_id=job.id)
-            needs += 1
-        elif fit.score >= min_score:
-            tracker.conn.execute("UPDATE jobs SET score=?, status='shortlisted', updated=? WHERE id=?",
-                                 (fit.score, __import__("time").time(), job.id))
-            tracker.add_event(job.id, "shortlist", f"score {fit.score}: " + "; ".join(fit.reasons[:3]))
-            tracker.conn.commit()
-            shortlisted += 1
-        else:
-            tracker.conn.execute("UPDATE jobs SET score=? WHERE id=?", (fit.score, job.id))
-            tracker.conn.commit()
-            blocked += 1
-    return {"shortlisted": shortlisted, "needs_review": needs, "below_floor": blocked}
+        _write_fit_report(cfg, tracker, profile, job, fit, report)
+        signals = build_signals(profile=profile, job=job, policy=cfg.policy,
+                                role_keywords=cfg.search.get("role_keywords", []), tracker=tracker)
+        result = qualify(signals)
+        tracker.set_qualification(job.id, result, signals)
+        counts[result.decision] += 1
+        if result.decision in {"plausible", "insufficient_evidence", "policy_review"}:
+            tracker.add_pending_once(f"Review needed for {job.title} @ {job.company}: " + "; ".join(result.reasons), job_id=job.id)
+    return {**counts, "shortlisted": counts["strong"],
+            "needs_review": counts["plausible"] + counts["insufficient_evidence"] + counts["policy_review"],
+            "below_floor": counts["reject"]}
 
 
 def _write_fit_report(cfg: Config, tracker: Tracker, profile: Profile,
@@ -175,7 +161,11 @@ def run_tailor(cfg: Config, tracker: Tracker, job_query: str) -> dict[str, Any]:
     if not job_id:
         return {"error": f"no job matching '{job_query}'"}
     job = tracker.get_job(job_id)
-    assert job
+    if job is None:
+        return {"error": "tracked job disappeared"}
+    blocked = tracker.require_strong(job_id)
+    if blocked:
+        return {"error": blocked}
     cv_md = render_cv_markdown(profile, job)
     warnings = check_fidelity(profile.all_facts_text(), cv_md)
     cv_dir = cfg.output_dir / "cvs"

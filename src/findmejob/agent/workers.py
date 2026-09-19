@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import json
-import urllib.request
 from pathlib import Path
 
 from ..config import Config
+from ..liveness import check_listing
 from ..pipeline import load_profile, run_search, run_tailor, run_triage
 from ..tracker import Tracker
 from .contracts import AgentResult
@@ -41,20 +41,25 @@ def _verify(payload: dict, cfg: Config, tracker: Tracker) -> AgentResult:
     job = tracker.get_job(job_id)
     if not job or not job.url:
         return AgentResult(False, "job has no URL to verify")
-    req = urllib.request.Request(job.url, method="HEAD",
-                                 headers={"User-Agent": "findmejob/0.1"})
-    try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            code = resp.status
-    except urllib.error.HTTPError as exc:
-        code = exc.code
-    except Exception as exc:
-        return AgentResult(False, f"verify failed: {exc}")
-    if code in (404, 410):
-        tracker.set_status(job_id, "skipped", "role page is dead")
-        return AgentResult(True, f"{job.title} @ {job.company}: page gone ({code}), marked skipped")
-    tracker.add_event(job_id, "verify", f"HTTP {code}")
-    return AgentResult(True, f"{job.title} @ {job.company}: still live (HTTP {code})")
+
+    # Use the same conservative GET/body check as the CLI. A reachable page
+    # is not necessarily an open role: explicit closure text wins, ambiguous
+    # HTTP failures stay unknown, and alive requires substantive apply evidence.
+    liveness, detail = check_listing(job.url)
+    tracker.set_liveness(job_id, liveness, detail)
+    tri = run_triage(cfg, tracker, job_id=job_id)
+    decision = tracker.qualification(job_id).get("decision")
+    if liveness == "expired":
+        summary = "listing expired"
+    elif liveness == "alive":
+        summary = "listing confirmed alive"
+    else:
+        summary = "listing liveness unknown"
+    return AgentResult(
+        True,
+        f"{job.title} @ {job.company}: {summary} ({detail}); decision {decision}",
+        data=tri,
+    )
 
 
 def _tailor(payload: dict, cfg: Config, tracker: Tracker) -> AgentResult:

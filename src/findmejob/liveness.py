@@ -27,7 +27,7 @@ EXPIRY_MARKERS = [
     "applications for this position have closed", "applications for this role have closed",
     "applications for this job have closed", "applications for the position have closed",
     "applications for the role have closed", "applications for the job have closed",
-    "applications have closed",
+    "applications have closed", "applications are now closed", "applications are closed",
     "applications closed", "vacancy has expired", "vacancy expired",
     "job has been removed",
 ]

@@ -7,7 +7,7 @@ findmejob turns one master CV and a plain preferences file into a repeatable pip
 1. **Find** roles from public job boards and feeds. Responses are cached with ETag/Last-Modified, so repeat runs only process what changed, and the same role found on several boards is merged into one record that keeps every source link.
 2. **Filter** them against your constraints: salary floor in your own currency, locations, industries, and anything you want excluded.
 3. **Verify** the employer from its official site, LinkedIn and an independent operational signal, while discovering source-backed careers, ATS or contact routes. Re-check listings later with `findmejob refresh --verify` so expired roles drop out.
-4. **Score** fit against your real experience, with an evidence report per role: every requirement found in the listing is labeled strong, partial or missing against your master CV.
+4. **Qualify** separately from discovery. Every lead is classified as strong, plausible/adjacent, insufficient-evidence, policy-review, stale, or reject. Only strong is actionable; unknown evidence never becomes a positive from keyword score. Requirement evidence remains grounded in your master CV.
 5. **Tailor** your CV for each role, using only facts from your master CV. It never invents experience. Output is Markdown plus a designed, ATS-safe PDF.
 6. **Draft** a short, natural application email. The CV carries the detail.
 7. **Apply** with a browser assistant that fills what it knows and stops to ask when it hits a CAPTCHA, a payment wall, an account-creation prompt, or a question your data cannot answer.

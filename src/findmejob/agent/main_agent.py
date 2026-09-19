@@ -22,6 +22,7 @@ from typing import Any
 
 from ..config import Config
 from ..tracker import Tracker
+from ..pipeline import run_triage
 from .workers import run_worker
 
 HELP = (
@@ -118,11 +119,19 @@ class MainAgent:
         if pending:
             row = pending[0]
             self.tracker.answer_pending(row["id"], msg)
+            outcome = ""
             if row["job_id"]:
-                self.tracker.set_status(row["job_id"], "shortlisted", "answered: " + msg[:120])
+                self.tracker.add_event(row["job_id"], "user_context",
+                                       f"Answer to pending question: {msg[:500]}")
+                run_triage(self.cfg, self.tracker, job_id=row["job_id"])
+                state = next((j for j in self.tracker.list_jobs()
+                              if j["id"] == row["job_id"]), None)
+                if state:
+                    outcome = (f" Re-evaluated the job: {state['decision']} "
+                               f"({state['status']}).")
             left = len(self.tracker.pending())
             more = f" {left} more question(s) waiting." if left else " Nothing else pending."
-            return f"Got it, recorded as the answer to: \"{row['question']}\".{more}"
+            return f"Got it, recorded as the answer to: \"{row['question']}\".{outcome}{more}"
 
         return HELP
 
