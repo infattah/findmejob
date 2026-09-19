@@ -59,7 +59,7 @@ def extract_requirements(description: str, max_items: int = 12) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     for req in reqs:
-        key = " ".join(sorted(_tokens(req)))[:200] or req.lower()
+        key = _dedupe_key(req)
         if key not in seen:
             seen.add(key)
             out.append(req)
@@ -69,6 +69,13 @@ def extract_requirements(description: str, max_items: int = 12) -> list[str]:
 
 
 
+
+def _dedupe_key(text: str) -> str:
+    # Include numeric thresholds so different seniority gates ("Requires 2+
+    # years" vs "Requires 5+ years") stay distinct; a token-only key collapses
+    # them because digits are not tokens.
+    parts = sorted(_tokens(text)) + sorted(_YEARS.findall(text))
+    return " ".join(parts)[:200] or text.lower()
 
 def _year_head(clause: str) -> str:
     """Keep only the words that directly modify a years phrase.
@@ -99,24 +106,35 @@ def _list_atoms(sentence: str) -> list[str]:
     return [atom for atom in atoms if _tokens(atom)]
 
 
+def _preferred_clause(text: str) -> tuple[str, bool]:
+    """Return (clean text, preferred) for a single clause or list atom.
+
+    "good to have" wording belongs to the clause or atom that carries it,
+    never to the whole comma sentence: a tail like "MBA good to have" must
+    not soften a hard years or skill clause sharing the same sentence.
+    """
+    preferred = bool(_PREFERRED.search(text))
+    return _PREFERRED.sub("", text).strip(" .;,"), preferred
+
+
 def decompose_requirement(requirement: str) -> list[tuple[str, bool]]:
     """Split a compound requirement into independently checkable clauses.
 
     Returns (text, preferred) pairs. A years phrase stays bound to domain
     words in its own clause head and to an adjacent requirement sentence, but
     comma-list atoms and "years and ..." tails become standalone items so each
-    is checked against its own CV evidence. Preferred ("good to have") clauses
-    are kept but can never count as hard gaps.
+    is checked against its own CV evidence. Preferred status is decided per
+    clause or atom, never per sentence, so a "good to have" tail can neither
+    become a hard gap nor soften a hard clause beside it.
     """
     sentences = _bounded_clauses(requirement)
     if len(sentences) <= 1 and "," not in requirement and not _PREFERRED.search(requirement):
-        return [(requirement, False)]
+        return [(requirement.strip(" .;,"), False)]
     items: list[tuple[str, bool]] = []
     consumed: set[int] = set()
     for idx, sent in enumerate(sentences):
         if idx in consumed:
             continue
-        preferred = bool(_PREFERRED.search(sent))
         if _YEARS.search(sent):
             head = _year_head(sent).strip(" .;,")
             generic = not (_tokens(_YEARS.sub("", head)) - _GENERIC_YEAR)
@@ -135,16 +153,29 @@ def decompose_requirement(requirement: str) -> list[tuple[str, bool]]:
                     consumed.update(j for j, other in enumerate(sentences)
                                     if _DOMAIN_CUE.search(other) and not _PREFERRED.search(other))
                     continue
-            if generic:
-                items.append((head, preferred))
-                items.extend((atom, preferred) for atom in _list_atoms(sent))
+            # Emit the years clause (its head keeps the domain words that
+            # directly modify the years) and each independent tail atom, each
+            # with its own preferred status.
+            head_clean, head_preferred = _preferred_clause(head)
+            items.append((head_clean, head_preferred))
+            for atom in _list_atoms(sent):
+                clean, atom_preferred = _preferred_clause(atom)
+                if clean and _tokens(clean):
+                    items.append((clean, atom_preferred))
+        else:
+            if _PREFERRED.search(sent) and "," in sent:
+                # A preferred tail sharing a comma sentence with a hard clause
+                # ("B2B SaaS experience required, MBA good to have") must not
+                # soften the hard clause: split and judge each atom on its own.
+                atoms = [part.strip(" .;,") for part in sent.split(",")]
             else:
-                # Domain words directly modify the years: keep the whole clause bound.
-                items.append((sent, preferred))
-        elif _REQ_MARKER.search(sent) or preferred:
-            clean = _PREFERRED.sub("", sent).strip(" .;,")
-            if clean and _tokens(clean):
-                items.append((clean, preferred))
+                atoms = [sent]
+            for atom in atoms:
+                clean, preferred = _preferred_clause(atom)
+                if not (_REQ_MARKER.search(clean) or preferred):
+                    continue
+                if clean and _tokens(clean):
+                    items.append((clean, preferred))
     return items or [(requirement, False)]
 
 
@@ -321,26 +352,39 @@ def _match_one(requirement: str, profile: Profile) -> RequirementMatch:
     return RequirementMatch(requirement, "missing", [], hard)
 
 
-def evaluate_requirements(profile: Profile, job: JobPosting, max_items: int = 20) -> FitReport:
+def evaluate_requirements(profile: Profile, job: JobPosting, max_items: int = 40) -> FitReport:
+    """Evaluate every extracted requirement against bounded CV evidence.
+
+    max_items bounds reported soft detail only: it can never hide a hard
+    requirement or leave an extracted requirement without a single evaluated
+    item. _ABSOLUTE_ITEM_BOUND is the pathological-input guard.
+    """
     report = FitReport(job.title, job.company)
-    clauses: list[tuple[str, bool]] = []
-    for req in extract_requirements(job.description):
-        clauses.extend(decompose_requirement(req))
     seen: set[str] = set()
-    for text, preferred in clauses:
-        key = " ".join(sorted(_tokens(text)))[:200] or text.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        item = _match_one(text, profile)
-        item.preferred = preferred
-        if preferred:
-            # Nice-to-have wording can never count as an unproven hard gap.
-            item.hard = False
-        report.items.append(item)
-        if len(report.items) >= max_items:
-            break
+    for req in extract_requirements(job.description):
+        represented = False
+        for text, preferred in decompose_requirement(req):
+            key = _dedupe_key(text)
+            if key in seen:
+                continue
+            item = _match_one(text, profile)
+            item.preferred = preferred
+            if preferred:
+                # Nice-to-have wording can never count as an unproven hard gap.
+                item.hard = False
+            if represented and not item.hard and len(report.items) >= max_items:
+                # Surplus soft detail beyond the reporting bound may be
+                # dropped; hard gaps and a requirement's first item may not.
+                continue
+            seen.add(key)
+            report.items.append(item)
+            represented = True
+            if len(report.items) >= _ABSOLUTE_ITEM_BOUND:
+                return report
     return report
+
+
+_ABSOLUTE_ITEM_BOUND = 200
 
 
 def render_report_markdown(report: FitReport, score: int | None = None, score_reasons: list[str] | None = None) -> str:

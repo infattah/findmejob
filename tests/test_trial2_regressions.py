@@ -131,5 +131,90 @@ class TrialTwoCompoundRequirements(unittest.TestCase):
         self.assertEqual(item.status, "missing")
 
 
+WEAK_PROFILE = Profile(summary="Retail sales assistant with 1 year of shop floor experience.")
+
+
+def weak_evaluate(desc, **kwargs):
+    return evaluate_requirements(WEAK_PROFILE, JobPosting(title="T", company="C", description=desc), **kwargs)
+
+
+class TrialTwoReviewStrictness(unittest.TestCase):
+    """Blocking strictness holes from the independent PR 4 review (2026-09-20)."""
+
+    def test_comma_preferred_tail_never_softens_hard_years(self):
+        # Reviewer probe: "Requires 5+ years, Google Ads, MBA good to have."
+        # downgraded the hard years clause to preferred on the reviewed head.
+        report = weak_evaluate("Requires 5+ years, Google Ads, MBA good to have.")
+        self.assertEqual(report.hard_missing, 1)
+        items = by_text(report)
+        self.assertEqual(items["Requires 5+ years"].status, "missing")
+        self.assertTrue(items["Requires 5+ years"].hard)
+        self.assertFalse(items["Requires 5+ years"].preferred)
+        self.assertIn("MBA", items)  # preferred marker stripped from the text
+        self.assertTrue(items["MBA"].preferred)
+        self.assertFalse(items["MBA"].hard)
+
+    def test_comma_preferred_tail_keeps_hard_years_on_strong_cv(self):
+        report = evaluate("Requires 5+ years, Google Ads, MBA good to have.")
+        self.assertEqual(report.hard_missing, 0)
+        items = by_text(report)
+        self.assertEqual(items["Requires 5+ years"].status, "strong")
+        self.assertTrue(items["Requires 5+ years"].hard)
+        self.assertFalse(items["Requires 5+ years"].preferred)
+        self.assertTrue(items["MBA"].preferred)
+
+    def test_comma_preferred_tail_never_softens_hard_skill_clause(self):
+        # Same defect class without a years clause: a hard comma clause must
+        # survive a "good to have" tail in its own sentence.
+        report = weak_evaluate("B2B SaaS experience required, MBA good to have.")
+        self.assertEqual(report.hard_missing, 1)
+        items = by_text(report)
+        self.assertTrue(items["B2B SaaS experience required"].hard)
+        self.assertFalse(items["B2B SaaS experience required"].preferred)
+        self.assertTrue(items["MBA"].preferred)
+
+    def test_long_decomposition_never_drops_trailing_hard_requirement(self):
+        # Reviewer probe: 6 comma-list requirements (30+ decomposed clauses)
+        # pushed a trailing hard requirement past the old max_items cap.
+        lines = ["Requirements"]
+        for i in range(6):
+            lines.append(f"- Requires {i + 2}+ years, Skillalpha{i}, Skillbeta{i}, "
+                         f"Skillgamma{i}, Skilldelta{i} good to have.")
+        lines.append("- Fluent written Arabic is required.")
+        desc = "\n".join(lines)
+        report = weak_evaluate(desc)
+        items = by_text(report)
+        self.assertIn("Fluent written Arabic is required", items)
+        self.assertTrue(items["Fluent written Arabic is required"].hard)
+        self.assertEqual(items["Fluent written Arabic is required"].status, "missing")
+        self.assertGreaterEqual(report.hard_missing, 7)  # 6 year gates + Arabic
+
+    def test_reporting_cap_still_covers_hard_gaps_and_every_requirement(self):
+        # Even under a deliberately tight cap, hard clauses are evaluated and
+        # every extracted requirement keeps at least one evaluated item.
+        lines = ["Requirements"]
+        for i in range(6):
+            lines.append(f"- Requires {i + 2}+ years, Skillalpha{i}, Skillbeta{i}, "
+                         f"Skillgamma{i}, Skilldelta{i} good to have.")
+        lines.append("- Fluent written Arabic is required.")
+        report = weak_evaluate("\n".join(lines), max_items=8)
+        items = by_text(report)
+        for i in range(6):
+            self.assertIn(f"Requires {i + 2}+ years", items)
+        self.assertIn("Fluent written Arabic is required", items)
+        self.assertTrue(items["Fluent written Arabic is required"].hard)
+        self.assertGreaterEqual(report.hard_missing, 7)
+
+    def test_numeric_threshold_years_stay_distinct(self):
+        # Reviewer note: bare generic year heads with different thresholds
+        # deduped into one item because the key ignored digits.
+        report = evaluate("Requires 2+ years, Google Ads. Requires 5+ years, Meta Ads.")
+        items = by_text(report)
+        self.assertIn("Requires 2+ years", items)
+        self.assertIn("Requires 5+ years", items)
+        self.assertEqual(items["Requires 2+ years"].status, "strong")
+        self.assertEqual(items["Requires 5+ years"].status, "strong")
+
+
 if __name__ == "__main__":
     unittest.main()
