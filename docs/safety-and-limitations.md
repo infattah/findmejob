@@ -12,6 +12,7 @@
 - **No silent account creation.** Sites that demand a new account pause the
   run (autonomy.never_create_accounts) and the question joins your pending
   list.
+- **No guessed employers or contacts.** Company verification preserves unknowns. Every usable application route must cite the public source where it was found.
 - **No guessing on forms.** Visa, salary expectations, notice period,
   relocation, required cover letters: unknown required fields pause the run.
 - **No surprise submits.** The apply flow is dry-run by default and stops
