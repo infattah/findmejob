@@ -97,3 +97,37 @@ class TestTrialFourEvidenceRegressions(unittest.TestCase):
     def test_we_have_operated_for_years_is_not_candidate_requirement(self):
         self.assertEqual(extract_requirements(
             "About us. We have operated for 12 years serving local merchants."), [])
+
+class TestIndependentReviewCompanyHistoryBoundaries(unittest.TestCase):
+    def test_natural_company_history_durations_are_not_requirements(self):
+        histories = (
+            "For 18 years, Delivery Hero has been delivering food worldwide.",
+            "Founded 18 years ago, Delivery Hero serves global markets.",
+            "About us. Our company has 18 years of experience serving merchants.",
+        )
+        for text in histories:
+            with self.subTest(text=text):
+                self.assertEqual(extract_requirements(text), [])
+
+    def test_real_candidate_year_requirements_remain(self):
+        descriptions = (
+            "Requirements\n- 5+ years of performance marketing experience",
+            "What you'll need\n- At least 3 years of experience in CRM",
+            "The candidate must have 4 years of paid media experience.",
+        )
+        for text in descriptions:
+            with self.subTest(text=text):
+                self.assertTrue(extract_requirements(text))
+
+class TestIndependentReviewCompanyHistoryBoundaries(unittest.TestCase):
+    def test_natural_company_history_durations_are_not_requirements(self):
+        histories = ("For 18 years, Delivery Hero has been delivering food worldwide.", "Founded 18 years ago, Delivery Hero serves global markets.", "About us. Our company has 18 years of experience serving merchants.")
+        for text in histories:
+            with self.subTest(text=text):
+                self.assertEqual(extract_requirements(text), [])
+
+    def test_real_candidate_year_requirements_remain(self):
+        descriptions = ("Requirements\n- 5+ years of performance marketing experience", "What you'll need\n- At least 3 years of experience in CRM", "The candidate must have 4 years of paid media experience.")
+        for text in descriptions:
+            with self.subTest(text=text):
+                self.assertTrue(extract_requirements(text))

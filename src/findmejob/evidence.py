@@ -22,9 +22,17 @@ _REQ_MARKER = re.compile(r"(requires?|must|years?|experience|proficien\w*|degree
 _GENERIC_YEAR = {"requires", "require", "required", "minimum"}
 _DOMAIN_CUE = re.compile(r"(expertise|experience|knowledge|background|track record|domain)", re.I)
 _COMPANY_HISTORY_YEARS = re.compile(
-    r"(?i)\b(?:we|the company|our (?:company|business|group|brand|platform)|[A-Z][\w&.-]+)\b"
-    r".{0,45}\b(?:has|have|been|is|are|delivering|operating|serving|building|founded)\b"
-    r".{0,25}\b(?:for|over|more than)\s+\d{1,3}\s*(?:\+|plus)?\s*years?\b"
+    r"(?ix)(?:"
+    r"^\s*(?:for|over|more\s+than)\s+\d{1,3}\s*(?:\+|plus)?\s*years?\s*,"
+    r"|\b(?:founded|established)\s+\d{1,3}\s*(?:\+|plus)?\s*years?\s+ago\b"
+    r"|\b(?:we|the\s+company|our\s+(?:company|business|group|brand|platform)|"
+    r"[A-Z][\w&.-]+)\b.{0,45}\b(?:has|have|been|is|are|delivering|operating|"
+    r"serving|building|founded)\b.{0,30}\b(?:for|over|more\s+than)\s+"
+    r"\d{1,3}\s*(?:\+|plus)?\s*years?\b"
+    r"|\b(?:we|the\s+company|our\s+(?:company|business|group|brand|platform)|"
+    r"[A-Z][\w&.-]+)\b.{0,20}\b(?:has|have|brings?|boasts?)\s+"
+    r"\d{1,3}\s*(?:\+|plus)?\s*years?\s+of\s+experience\b"
+    r")"
 )
 _GENERIC_CAREER_YEARS = re.compile(
     r"(?i)\b\d{1,2}\s*(?:\+|plus)?\s*years?\s+(?:of\s+)?(?:professional |career |work )?experience\b"

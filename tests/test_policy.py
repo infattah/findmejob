@@ -217,3 +217,72 @@ class TestTrialFourSectorRegressions(unittest.TestCase):
             "Software Marketing Manager", "Grand Hotel",
             "We operate a hotel and use cloud software. Accommodation requests due to disability are welcome.")
         self.assertEqual(result.verdict, "block")
+
+class TestTrialFourIndependentReviewPaymentBoundaries(unittest.TestCase):
+    policy = {"sector_exclusions": ["forex trading"]}
+
+    def verdict(self, title, company, description):
+        return check_job(JobPosting(title=title, company=company, description=description), self.policy).verdict
+
+    def test_payment_transaction_analytics_provider_wording_is_neutral(self):
+        self.assertEqual(self.verdict(
+            "Analytics Manager", "Data Co",
+            "We provide payment transaction analytics to online retailers."), "pass")
+
+    def test_payment_transaction_reporting_and_measurement_are_neutral(self):
+        for noun in ("reporting", "measurement", "metrics", "insights"):
+            with self.subTest(noun=noun):
+                self.assertEqual(self.verdict(
+                    "Analytics Manager", "Data Co",
+                    f"We provide payment transaction {noun} to online retailers."), "pass")
+
+    def test_payment_transactions_product_title_at_retailer_is_neutral(self):
+        self.assertEqual(self.verdict(
+            "Payment Transactions Product Manager", "Retail Co",
+            "Own checkout product workflows for online retail."), "pass")
+
+    def test_payment_transactions_marketing_title_at_retailer_is_neutral(self):
+        self.assertEqual(self.verdict(
+            "Payment Transaction Marketing Manager", "Retail Co",
+            "Market our ecommerce checkout experience."), "pass")
+
+    def test_actual_payment_transaction_provider_still_blocks(self):
+        self.assertEqual(self.verdict(
+            "Product Manager", "Transfer Co",
+            "We facilitate and process regulated payment transactions for merchants."), "block")
+
+    def test_remittance_and_fx_providers_still_block(self):
+        for description in (
+            "We offer remittance services to consumers.",
+            "Our platform facilitates foreign exchange for international businesses.",
+        ):
+            with self.subTest(description=description):
+                self.assertEqual(self.verdict("Growth Manager", "Transfer Co", description), "block")
+
+class TestTrialFourIndependentReviewPaymentBoundaries(unittest.TestCase):
+    policy = {"sector_exclusions": ["forex trading"]}
+
+    def verdict(self, title, company, description):
+        return check_job(JobPosting(title=title, company=company, description=description), self.policy).verdict
+
+    def test_payment_transaction_analytics_provider_wording_is_neutral(self):
+        self.assertEqual(self.verdict("Analytics Manager", "Data Co", "We provide payment transaction analytics to online retailers."), "pass")
+
+    def test_payment_transaction_reporting_and_measurement_are_neutral(self):
+        for noun in ("reporting", "measurement", "metrics", "insights"):
+            with self.subTest(noun=noun):
+                self.assertEqual(self.verdict("Analytics Manager", "Data Co", f"We provide payment transaction {noun} to online retailers."), "pass")
+
+    def test_payment_transactions_product_title_at_retailer_is_neutral(self):
+        self.assertEqual(self.verdict("Payment Transactions Product Manager", "Retail Co", "Own checkout product workflows for online retail."), "pass")
+
+    def test_payment_transactions_marketing_title_at_retailer_is_neutral(self):
+        self.assertEqual(self.verdict("Payment Transaction Marketing Manager", "Retail Co", "Market our ecommerce checkout experience."), "pass")
+
+    def test_actual_payment_transaction_provider_still_blocks(self):
+        self.assertEqual(self.verdict("Product Manager", "Transfer Co", "We facilitate and process regulated payment transactions for merchants."), "block")
+
+    def test_remittance_and_fx_providers_still_block(self):
+        for description in ("We offer remittance services to consumers.", "Our platform facilitates foreign exchange for international businesses."):
+            with self.subTest(description=description):
+                self.assertEqual(self.verdict("Growth Manager", "Transfer Co", description), "block")

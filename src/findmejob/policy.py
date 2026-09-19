@@ -59,6 +59,10 @@ _FOREX_RESTRICTED_PHRASE = (
     r"remittances?|payment transactions?)\b"
 )
 _FOREX_BUSINESS_NOUN = r"\b(?:compan(?:y|ies)|business(?:es)?|fintechs?|platforms?|providers?|services?|networks?)\b"
+_PAYMENT_TRANSACTION_ANALYTICS = re.compile(
+    r"\bpayment transactions?\s+(?:analytics?|analysis|reporting|measurement|metrics?|insights?|data)\b",
+    re.I,
+)
 _FOREX_BUSINESS_CONTEXT = re.compile(
     # business noun + offering verb + restricted phrase
     r"\b(?:company|business|fintech|platform|provider|service|network|we|our)\b.{0,100}"
@@ -103,7 +107,21 @@ def _sector_match(job: JobPosting, configured: str) -> str | None:
                 pattern = r"(?<![a-z0-9])payment transactions?(?![a-z0-9])"
             else:
                 pattern = r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])"
-            if re.search(pattern, identity) or (re.search(pattern, text) and _FOREX_BUSINESS_CONTEXT.search(text)):
+            # A job title can name a product without identifying the employer's
+            # business. Require company identity or grounded business prose for
+            # payment-transaction aliases.
+            identity_match = re.search(pattern, identity)
+            if phrase == "payment transaction":
+                company_identity = re.search(pattern, job.company.lower())
+                # Analytics/reporting *about* transactions is neutral. Remove
+                # that object before provider-context recognition so "provide
+                # payment transaction analytics" cannot become "provide payment
+                # transactions".
+                business_text = _PAYMENT_TRANSACTION_ANALYTICS.sub("transaction analytics", text)
+                contextual = re.search(pattern, business_text) and _FOREX_BUSINESS_CONTEXT.search(business_text)
+                if company_identity or contextual:
+                    return phrase
+            elif identity_match or (re.search(pattern, text) and _FOREX_BUSINESS_CONTEXT.search(text)):
                 return phrase
         return None
     direct_hotel_identity = bool(re.search(r"\b(?:hotel|resort|lodging|hospitality)\b", identity))
