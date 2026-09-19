@@ -256,3 +256,45 @@ class WeakFrequencyClosureTests(unittest.TestCase):
     def test_unrelated_frequency_and_none_preserve_clause_locality(self):
         self.assertEqual("strong", self.status("Salesforce experience: none; HubSpot administrator"))
         self.assertEqual("strong", self.status("Rarely used Salesforce. HubSpot power user"))
+
+class IndependentTargetClaimClosureTests(unittest.TestCase):
+    def status(self, evidence, skill="HubSpot"):
+        requirement = f"Hands-on proficiency with {skill} and product analytics tools"
+        return evaluate_requirements(
+            Profile(skills=[evidence, "Product analytics tools: PostHog"]),
+            JobPosting(title="T", company="C", description="Requirements\n- " + requirement),
+        ).items[0].status
+
+    def test_adjacent_anchorless_shorthand_remains_target_bound_and_weak(self):
+        cases = (
+            ("HubSpot; occasionally administered", "HubSpot"),
+            ("HubSpot. Rarely handled", "HubSpot"),
+            ("Kubernetes: occasionally operated", "Kubernetes"),
+            ("Terraform; seldom worked with", "Terraform"),
+            ("TERRAFORM? Sometimes administered", "Terraform"),
+        )
+        for evidence, skill in cases:
+            with self.subTest(evidence=evidence):
+                self.assertEqual("missing", self.status(evidence, skill))
+
+    def test_separate_strong_target_claim_survives_discarded_non_evidence(self):
+        cases = (
+            "HubSpot experience: none; HubSpot administrator",
+            "Experience with HubSpot? None. HubSpot administrator",
+            "Rarely handled HubSpot; HubSpot power user",
+            "HubSpot administrator. HubSpot experience: none",
+            "HubSpot power user; occasionally handled HubSpot",
+        )
+        for evidence in cases:
+            with self.subTest(evidence=evidence):
+                self.assertEqual("strong", self.status(evidence))
+
+    def test_only_weak_or_negated_target_claims_remain_missing(self):
+        cases = (
+            "HubSpot experience: none; rarely handled HubSpot",
+            "HubSpot; occasionally administered",
+            "Never used HubSpot. HubSpot coursework",
+        )
+        for evidence in cases:
+            with self.subTest(evidence=evidence):
+                self.assertEqual("missing", self.status(evidence))

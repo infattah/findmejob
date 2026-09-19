@@ -526,37 +526,56 @@ def _local_claim_windows(normalized: str, component: str | None) -> list[str]:
     return windows or [normalized]
 
 
-def _evidence_strength(fragment: str, component: str | None = None) -> str:
-    """Classify bounded, phrase-local evidence as strong, weak, or negated."""
-    # Preserve hard phrase boundaries before punctuation normalization so an
-    # unrelated weak/negative clause cannot contaminate the target claim.
-    raw_clauses = [part for part in re.split(r"[;.!?\n]+", fragment) if part.strip()]
-    # A punctuation-separated answer such as "HubSpot experience? None" is
-    # part of the preceding claim, not an unrelated sentence.
-    joined_clauses: list[str] = []
-    for part in raw_clauses:
-        if _normalized_evidence(part) == "none" and joined_clauses:
-            joined_clauses[-1] += " none"
-        else:
-            joined_clauses.append(part)
-    anchors = _tokens(component or "") - {"tools", "tool", "product", "experience"}
-    clauses = [_normalized_evidence(part) for part in joined_clauses]
-    target_clauses = [part for part in clauses if not anchors or anchors & _tokens(part)]
-    windows = [window for part in (target_clauses or clauses)
-               for window in _local_claim_windows(part, component)]
-    for local in windows:
-        if _NEGATION.search(local):
-            return "negated"
-    # Uncertain exposure/training morphology fails closed even if the phrase
-    # also contains a role noun such as "administrator".
-    for local in windows:
-        if _WEAK_LEVEL.search(local) or _WEAK_EXPOSURE.search(local):
-            return "weak"
-        if _WEAK_FREQUENCY.search(local):
-            return "weak"
-    if any(_EXPLICIT_STRONG.search(local) for local in windows):
-        return "strong"
+def _claim_strength(claim: str) -> str:
+    """Classify one target-bound claim; callers combine claims independently."""
+    if _NEGATION.search(claim):
+        return "negated"
+    if (_WEAK_LEVEL.search(claim) or _WEAK_EXPOSURE.search(claim)
+            or _WEAK_FREQUENCY.search(claim)):
+        return "weak"
     return "strong"
+
+
+def _evidence_strength(fragment: str, component: str | None = None) -> str:
+    """Classify target claims independently and discard weak/negated claims."""
+    raw_clauses = [part for part in re.split(r"[;.!?\n]+", fragment) if part.strip()]
+    # Question/answer shorthand belongs to the preceding claim.
+    joined: list[str] = []
+    for part in raw_clauses:
+        if _normalized_evidence(part) == "none" and joined:
+            joined[-1] += " none"
+        else:
+            joined.append(part)
+    clauses = [_normalized_evidence(part) for part in joined]
+    anchors = _tokens(component or "") - {"tools", "tool", "product", "experience"}
+    claims: list[str] = []
+    for idx, clause in enumerate(clauses):
+        if anchors and not (anchors & _tokens(clause)):
+            continue
+        # Natural shorthand carries a named target into the immediately
+        # following anchorless modifier/activity clause. Treat the pair as one
+        # claim, so "HubSpot; occasionally administered" is weak rather than a
+        # bare strong claim plus an orphaned modifier.
+        if idx + 1 < len(clauses):
+            following = clauses[idx + 1]
+            following_has_anchor = bool(anchors & _tokens(following)) if anchors else False
+            if (not following_has_anchor
+                    and (_WEAK_FREQUENCY.search(following)
+                         or _WEAK_LEVEL.search(following)
+                         or _WEAK_EXPOSURE.search(following)
+                         or _NEGATION.search(following))):
+                clause = f"{clause} {following}"
+        claims.extend(_local_claim_windows(clause, component))
+    if not claims:
+        claims = [_normalized_evidence(fragment)]
+    strengths = [_claim_strength(claim) for claim in claims]
+    # A separate strong target claim wins after weak/negated target claims are
+    # discarded. Weak fragments never combine into a strong claim.
+    if "strong" in strengths:
+        return "strong"
+    if "negated" in strengths:
+        return "negated"
+    return "weak"
 
 def _compound_components(requirement: str) -> list[str]:
     """Return mandatory AND components for explicit proficiency compounds."""
