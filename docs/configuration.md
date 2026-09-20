@@ -10,6 +10,8 @@ you prefer to edit by hand. JSON only; secrets never go here (they live in
 - `master_cv` - path to your structured markdown master CV.
 - `full_name`, `email`, `phone`, `links` - used to pre-fill forms and draft
   emails. Values in the CV win if both exist.
+- `photo` - optional path to a JPEG photo, used by `findmejob cv` in the
+  designed style (a `--photo` flag overrides it).
 
 ## search
 

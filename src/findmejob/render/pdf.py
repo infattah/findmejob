@@ -153,7 +153,7 @@ class _Layout:
     def ops(self): return self.pages[-1]
     def _need(self,h):
         if self.y-h<BOTTOM:self.pages.append([]);self.y=PAGE_H-MARGIN
-    def _show(self,text,size,bold,x,y):
+    def _show(self,text,size,bold,x,y,color=None):
         cursor=x
         for kind,run in _runs(text):
             key,f=_font(kind,bold); self.used.add(key)
@@ -162,20 +162,47 @@ class _Layout:
             glyphs="".join(f"{g:04X}" for g in gids)
             actual=f"/Span <</ActualText <{_utf16hex(run[::-1])}>>> BDC " if kind=="arabic" else ""
             close=" EMC" if kind=="arabic" else ""
-            self.ops.append(f"{actual}BT /{key} {size} Tf {cursor:.1f} {y:.1f} Td <{glyphs}> Tj ET{close}")
+            col=f"{color[0]:.3f} {color[1]:.3f} {color[2]:.3f} rg " if color else ""
+            self.ops.append(f"{col}{actual}BT /{key} {size} Tf {cursor:.1f} {y:.1f} Td <{glyphs}> Tj ET{close}")
             cursor += sum(f.widths[g] for g in gids)/f.units*size
-    def text(self,text,size=10.5,bold=False,indent=0,after=4,leading=None):
+    def text(self,text,size=10.5,bold=False,indent=0,after=4,leading=None,color=None):
         leading=leading or size*1.35; max_w=PAGE_W-MARGIN*2-indent
-        for line in _wrap(text,size,max_w,bold): self._need(leading+after);self._show(line,size,bold,MARGIN+indent,self.y);self.y-=leading
+        for line in _wrap(text,size,max_w,bold): self._need(leading+after);self._show(line,size,bold,MARGIN+indent,self.y,color=color);self.y-=leading
         self.y-=after
     def heading(self,text,after=14.5):
         self._need(21+after);y=self.y;self._show(text,12.5,True,MARGIN,y);rule=y-7;self.ops.append(f"0.75 w {MARGIN:.1f} {rule:.1f} m {PAGE_W-MARGIN:.1f} {rule:.1f} l S");self.y=rule-after
-    def bullet(self,text,size=10.5,after=2.5):
+    def bullet(self,text,size=10.5,after=2.5,color=None):
         lead=size*1.32
         for i,line in enumerate(_wrap(text,size,PAGE_W-MARGIN*2-14)):
-            self._need(lead+after);self._show(("•  " if i==0 else "    ")+line,size,False,MARGIN,self.y);self.y-=lead
+            self._need(lead+after);self._show(("•  " if i==0 else "    ")+line,size,False,MARGIN,self.y,color=color);self.y-=lead
         self.y-=after
     def spacer(self,pts): self.y-=pts
+    def rect(self,x,y,w,h,rgb):
+        r,g,b=rgb
+        self.ops.append(f"{r:.3f} {g:.3f} {b:.3f} rg {x:.1f} {y:.1f} {w:.1f} {h:.1f} re f")
+    def hline(self,y,rgb,width=1.0,x0=MARGIN,x1=PAGE_W-MARGIN):
+        r,g,b=rgb
+        self.ops.append(f"{r:.3f} {g:.3f} {b:.3f} RG {width} w {x0:.1f} {y:.1f} m {x1:.1f} {y:.1f} l S")
+    def show_at(self,text,size,bold,x,y,color=None):
+        self._show(text,size,bold,x,y,color=color)
+    def section(self,title,color,rule_color):
+        self._need(30); y=self.y
+        self._show(title.upper(),11.5,True,MARGIN,y,color=color)
+        rule=y-7; self.hline(rule,rule_color); self.y=rule-13
+    def circle_image(self,name,cx,cy,r,iw,ih,ring=None):
+        k=0.5522848
+        scale=max(2*r/iw,2*r/ih); w,h=iw*scale,ih*scale
+        x,y=cx-w/2,cy-h/2; c=k*r
+        path=" ".join([
+            f"{cx+r:.1f} {cy:.1f} m",
+            f"{cx+r:.1f} {cy+c:.1f} {cx+c:.1f} {cy+r:.1f} {cx:.1f} {cy+r:.1f} c",
+            f"{cx-c:.1f} {cy+r:.1f} {cx-r:.1f} {cy+c:.1f} {cx-r:.1f} {cy:.1f} c",
+            f"{cx-r:.1f} {cy-c:.1f} {cx-c:.1f} {cy-r:.1f} {cx:.1f} {cy-r:.1f} c",
+            f"{cx+c:.1f} {cy-r:.1f} {cx+r:.1f} {cy-c:.1f} {cx+r:.1f} {cy:.1f} c"])
+        self.ops.append(f"q {path} W n {w:.1f} 0 0 {h:.1f} {x:.1f} {y:.1f} cm /{name} Do Q")
+        if ring:
+            rr,gg,bb=ring
+            self.ops.append(f"q {rr:.3f} {gg:.3f} {bb:.3f} RG 2 w {path} S Q")
 
 def _cmap_stream(mapping):
     pairs=[]
@@ -186,7 +213,7 @@ def _cmap_stream(mapping):
     for c in chunks: body+=f"{len(c)} beginbfchar\n"+"\n".join(c)+"\nendbfchar\n"
     return (body+"endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend").encode()
 
-def _build_pdf(pages,used):
+def _build_pdf(pages,used,images=None):
     objs=[]
     def add(body=b""): objs.append(body.encode() if isinstance(body,str) else body);return len(objs)
     catalog=add(); pages_id=add(); font_ids={}
@@ -212,11 +239,17 @@ def _build_pdf(pages,used):
         cm=_cmap_stream(mapping); cmid=add(b"<< /Length "+str(len(cm)).encode()+b" >>\nstream\n"+cm+b"\nendstream")
         font_ids[key]=add(f"<< /Type /Font /Subtype /Type0 /BaseFont /FMJ{key} /Encoding /Identity-H /DescendantFonts [{cid} 0 R] /ToUnicode {cmid} 0 R >>")
         embedded_by_file[f.filename] = font_ids[key]
+    img_ids={}
+    for name,(data,w,h) in (images or {}).items():
+        head=f"<< /Type /XObject /Subtype /Image /Width {w} /Height {h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length {len(data)} >>\nstream\n".encode()
+        img_ids[name]=add(head+data+b"\nendstream")
+    xobjects=" ".join(f"/{k} {v} 0 R" for k,v in img_ids.items())
     kids=[]
     resources=" ".join(f"/{k} {v} 0 R" for k,v in font_ids.items())
     for ops in pages:
         stream=("\n".join(ops)+"\n").encode(); content=add(b"<< /Length "+str(len(stream)).encode()+b" >>\nstream\n"+stream+b"endstream")
-        kids.append(add(f"<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 {PAGE_W:.0f} {PAGE_H:.0f}] /Resources << /Font << {resources} >> >> /Contents {content} 0 R >>"))
+        res=f"/Font << {resources} >>"+(f" /XObject << {xobjects} >>" if xobjects else "")
+        kids.append(add(f"<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 {PAGE_W:.0f} {PAGE_H:.0f}] /Resources << {res} >> /Contents {content} 0 R >>"))
     objs[pages_id-1]=f"<< /Type /Pages /Kids [{' '.join(f'{k} 0 R' for k in kids)}] /Count {len(kids)} >>".encode()
     objs[catalog-1]=f"<< /Type /Catalog /Pages {pages_id} 0 R >>".encode()
     out=bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n"); offsets=[0]
@@ -235,7 +268,104 @@ def render_profile_pdf(lines_plan,out_path):
         elif kind=="spacer":lay.spacer(6)
     path=Path(out_path);path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(_build_pdf(lay.pages,lay.used));return path
 
-def render_cv_pdf(profile,job,out_path):
+def jpeg_size(data):
+    """Return (width, height) of a JPEG image, or raise ValueError."""
+    if len(data) < 4 or data[:2] != b"\xff\xd8":
+        raise ValueError("not a JPEG")
+    i = 2
+    while i + 9 < len(data):
+        if data[i] != 0xFF:
+            i += 1
+            continue
+        marker = data[i + 1]
+        if marker in (0xC0, 0xC1, 0xC2):
+            h, w = struct.unpack_from(">HH", data, i + 5)
+            return w, h
+        if marker in (0xD8, 0xD9, 0x01) or 0xD0 <= marker <= 0xD7:
+            i += 2
+            continue
+        seg = struct.unpack_from(">H", data, i + 2)[0]
+        i += 2 + seg
+    raise ValueError("no JPEG size marker found")
+
+
+DEFAULT_THEME = {
+    "navy": (0.122, 0.165, 0.267),   # deep navy header band
+    "gold": (0.788, 0.635, 0.153),   # gold accents
+    "paper": (1.0, 1.0, 1.0),
+    "ink": (0.16, 0.16, 0.16),
+}
+
+
+def _render_designed(profile, job, out_path, photo=None, theme=None):
+    """Designed theme: navy band with the name and contact block, gold section
+    headings, navy role lines. Optional circular JPEG photo in the band.
+    Text stays real and selectable, so the output remains ATS-safe."""
+    from ..tailor import rank_bullets, rank_skills
+    th = dict(DEFAULT_THEME)
+    if theme:
+        th.update(theme)
+    lay = _Layout()
+    images = {}
+    photo_r = 40.0
+    text_w = PAGE_W - MARGIN * 2
+    if photo is not None:
+        text_w -= photo_r * 2 + 16
+    name_lines = _wrap(profile.full_name or "Curriculum Vitae", 20, text_w, bold=True)
+    head_lines = _wrap(profile.headline, 11.5, text_w, bold=True) if profile.headline else []
+    contact = "  |  ".join(p for p in [profile.email, profile.phone] if p)
+    contact_lines = _wrap(contact, 9, text_w) if contact else []
+    link_lines = _wrap("  |  ".join(f"{k}: {v}" for k, v in profile.links.items()), 9, text_w) if profile.links else []
+    band_h = max(104.0, 30 + 24 * len(name_lines) + 14 * len(head_lines)
+                 + 11.5 * (len(contact_lines) + len(link_lines)) + 22)
+    lay.rect(0, PAGE_H - band_h, PAGE_W, band_h, th["navy"])
+    lay.rect(0, PAGE_H - band_h - 3, PAGE_W, 3, th["gold"])
+    if photo is not None:
+        data = Path(photo).read_bytes()
+        w, h = jpeg_size(data)
+        images["ImPhoto"] = (data, w, h)
+        lay.circle_image("ImPhoto", PAGE_W - MARGIN - photo_r, PAGE_H - band_h / 2,
+                         photo_r, w, h, ring=th["gold"])
+    y = PAGE_H - 40
+    for line in name_lines:
+        lay.show_at(line, 20, True, MARGIN, y, color=th["paper"]); y -= 24
+    y -= 2
+    for line in head_lines:
+        lay.show_at(line, 11.5, True, MARGIN, y, color=th["gold"]); y -= 14
+    y -= 4
+    for line in contact_lines + link_lines:
+        lay.show_at(line, 9, False, MARGIN, y, color=th["paper"]); y -= 11.5
+    lay.y = PAGE_H - band_h - 26
+    if profile.summary:
+        lay.section("Summary", th["gold"], th["gold"]); lay.text(profile.summary, 10.5, after=3.5, color=th["ink"])
+    skills = rank_skills(profile, job)
+    if skills:
+        lay.section("Skills", th["gold"], th["gold"]); lay.text("  •  ".join(skills), 10.5, after=3.5, color=th["ink"])
+    if profile.experiences:
+        lay.section("Experience", th["gold"], th["gold"])
+        for exp in profile.experiences:
+            dates = " - ".join(p for p in [exp.start, exp.end] if p)
+            lay.text(f"{exp.role} - {exp.company}" + (f"   ({dates})" if dates else ""), 11, True, after=1.5, color=th["navy"])
+            for b in rank_bullets(exp.bullets, job):
+                lay.bullet(b, color=th["ink"])
+            lay.spacer(6)
+    if profile.education:
+        lay.section("Education", th["gold"], th["gold"])
+        for edu in profile.education:
+            lay.text(f"{edu.degree} - {edu.school}" + (f"   ({edu.year})" if edu.year else ""), 11, True, after=1.5, color=th["navy"])
+    path = Path(out_path); path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(_build_pdf(lay.pages, lay.used, images))
+    return path
+
+
+def render_cv_pdf(profile, job, out_path, *, style="classic", photo=None, theme=None):
+    """Render a tailored CV PDF. style="classic" is the plain single-column
+    layout; style="designed" is the navy/gold band layout with an optional
+    JPEG photo. job may be None for a general, untargeted CV."""
+    if style == "designed":
+        return _render_designed(profile, job, out_path, photo=photo, theme=theme)
+    if style != "classic":
+        raise ValueError(f"unknown CV style: {style!r}")
     from ..tailor import rank_bullets,rank_skills
     plan=[("name",profile.full_name or "Curriculum Vitae")]
     contact="  |  ".join(p for p in [profile.email,profile.phone] if p)

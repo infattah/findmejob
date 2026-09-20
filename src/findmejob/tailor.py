@@ -15,7 +15,9 @@ def _job_keywords(job: JobPosting) -> set[str]:
     return {t for t in re.findall(r"[a-z][a-z0-9+#.]{2,}", job.search_text())}
 
 
-def rank_skills(profile: Profile, job: JobPosting) -> list[str]:
+def rank_skills(profile: Profile, job: JobPosting | None) -> list[str]:
+    if job is None:
+        return list(profile.skills)
     kw = _job_keywords(job)
 
     def rel(skill: str) -> int:
@@ -25,7 +27,9 @@ def rank_skills(profile: Profile, job: JobPosting) -> list[str]:
     return sorted(profile.skills, key=lambda s: (-rel(s), profile.skills.index(s)))
 
 
-def rank_bullets(bullets: list[str], job: JobPosting) -> list[str]:
+def rank_bullets(bullets: list[str], job: JobPosting | None) -> list[str]:
+    if job is None:
+        return list(bullets)
     kw = _job_keywords(job)
 
     def rel(bullet: str) -> int:
@@ -34,7 +38,8 @@ def rank_bullets(bullets: list[str], job: JobPosting) -> list[str]:
     return sorted(bullets, key=lambda b: (-rel(b), bullets.index(b)))
 
 
-def render_cv_markdown(profile: Profile, job: JobPosting) -> str:
+def render_cv_markdown(profile: Profile, job: JobPosting | None = None) -> str:
+    # job=None builds a general CV: master-CV order, no relevance ranking.
     lines: list[str] = [f"# {profile.full_name}", ""]
     contact = [p for p in [profile.email, profile.phone] if p]
     if contact:
