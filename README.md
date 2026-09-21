@@ -4,6 +4,8 @@ Open-source, local-first AI job-search and application copilot.
 
 findmejob turns one master CV and a plain preferences file into a repeatable pipeline. It works for any profession and any region: everything role-, country- or industry-specific lives in your configuration, not in the code.
 
+> **Alpha software.** findmejob is early-stage and under active development. Try it with dummy or fictional data first - no real accounts, email credentials, or API keys - until you have reviewed the setup and the code. The local web UI has no authentication; never expose it to the internet. See [docs/safety-and-limitations.md](docs/safety-and-limitations.md).
+
 1. **Find** roles from public job boards and feeds. Responses are cached with ETag/Last-Modified, so repeat runs only process what changed, and the same role found on several boards is merged into one record that keeps every source link.
 2. **Filter** them against your constraints: salary floor in your own currency, locations, industries, and anything you want excluded.
 3. **Verify** the employer from its official site, LinkedIn and an independent operational signal, while discovering source-backed careers, ATS or contact routes. Re-check listings later with `findmejob refresh --verify` so expired roles drop out.
