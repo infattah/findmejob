@@ -10,7 +10,7 @@ findmejob turns one master CV and a plain preferences file into a repeatable pip
 2. **Filter** them against your constraints: salary floor in your own currency, locations, industries, and anything you want excluded.
 3. **Verify** the employer from its official site, LinkedIn and an independent operational signal, while discovering source-backed careers, ATS or contact routes. Re-check listings later with `findmejob refresh --verify` so expired roles drop out.
 4. **Qualify** separately from discovery. Every lead is classified as strong, plausible/adjacent, insufficient-evidence, policy-review, stale, or reject. Only strong is actionable; unknown evidence never becomes a positive from keyword score. Requirement evidence remains grounded in your master CV.
-5. **Tailor** your CV for each role, using only facts from your master CV. It never invents experience. Output is Markdown plus a designed, ATS-safe PDF.
+5. **Tailor** your CV for each role, using only facts from your master CV. It never invents experience. Output is Markdown plus a designed, ATS-safe PDF. `findmejob cv` is the standalone CV builder: a tracked role, any pasted job ad, or one general profile CV - navy/gold designed PDF by default, optional photo.
 6. **Draft** a short, natural application email. The CV carries the detail.
 7. **Apply** with a browser assistant that fills what it knows and stops to ask when it hits a CAPTCHA, a payment wall, an account-creation prompt, or a question your data cannot answer.
 8. **Track** every role, status, decision and follow-up date in a local database, and gather everything for one application into a single pack (`findmejob pack`).
@@ -36,6 +36,9 @@ findmejob doctor                     # checks your setup, says what is missing
 findmejob search                     # pulls from your configured sources (cached)
 findmejob triage                     # policy check + fit score + evidence report
 findmejob tailor --job <id>          # tailored CV (Markdown + PDF) + email draft
+findmejob cv --job <id>              # designed CV for a tracked role
+findmejob cv --ad ad.txt             # personalized CV from any pasted job ad
+findmejob cv --general               # one general profile CV, no job targeting
 findmejob pack --job <id>            # one folder with everything for that application
 findmejob apply --job <id>           # browser-assisted apply (dry-run by default)
 findmejob refresh --verify           # drop listings that have expired

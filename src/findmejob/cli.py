@@ -104,6 +104,51 @@ def cmd_tailor(args) -> int:
     return 0
 
 
+def cmd_cv(args) -> int:
+    cfg = load_config(Path(args.dir) if args.dir else None)
+    try:
+        profile = load_profile(cfg)
+    except FileNotFoundError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    job = None
+    if args.job:
+        tracker = Tracker(cfg.db_path)
+        job_id = tracker.resolve_job_id(args.job)
+        if not job_id:
+            print(f"no job matching '{args.job}'", file=sys.stderr)
+            return 1
+        blocked = tracker.require_strong(job_id)
+        if blocked:
+            print(blocked, file=sys.stderr)
+            return 1
+        job = tracker.get_job(job_id)
+    elif args.ad:
+        try:
+            text = sys.stdin.read() if args.ad == "-" else Path(args.ad).read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"cannot read job ad: {exc}", file=sys.stderr)
+            return 1
+        if not text.strip():
+            print("empty job ad", file=sys.stderr)
+            return 1
+        from .cvbuilder import job_from_ad
+        job = job_from_ad(text, args.title, args.company)
+    from .cvbuilder import build_cv
+    photo = args.photo or cfg.profile.get("photo")
+    out_dir = Path(args.out) if args.out else cfg.output_dir / "cvs"
+    res = build_cv(profile, job, out_dir, style=args.style, photo=photo)
+    print(f"CV:    {res['cv']}")
+    print(f"PDF:   {res['pdf']}")
+    for n in res["notes"]:
+        print(f"note: {n}")
+    if res["fidelity_warnings"]:
+        print("Fidelity check flagged terms not in your master CV:")
+        for w in res["fidelity_warnings"]:
+            print(f"  - {w}")
+    return 0
+
+
 def cmd_apply(args) -> int:
     cfg = load_config(Path(args.dir) if args.dir else None)
     tracker = Tracker(cfg.db_path)
@@ -297,6 +342,17 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("search", help="fetch roles from sources"); p.add_argument("--no-triage", action="store_true"); p.set_defaults(fn=cmd_search)
     p = sub.add_parser("triage", help="policy check + fit scoring"); p.set_defaults(fn=cmd_triage)
     p = sub.add_parser("tailor", help="tailored CV + email draft"); p.add_argument("--job", required=True); p.set_defaults(fn=cmd_tailor)
+    p = sub.add_parser("cv", help="build one personalized CV (Markdown + designed PDF)")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--job", help="tracked job id or search text (strong fits only)")
+    g.add_argument("--ad", help="path to a job ad text file, or - to read it from stdin")
+    g.add_argument("--general", action="store_true", help="no job targeting - one general profile CV")
+    p.add_argument("--title", default="", help="job title, when using --ad")
+    p.add_argument("--company", default="", help="company name, when using --ad")
+    p.add_argument("--style", choices=["designed", "classic"], default="designed")
+    p.add_argument("--photo", help="JPEG photo for the designed header (default: profile.photo in config.json)")
+    p.add_argument("--out", help="output directory (default: output/cvs)")
+    p.set_defaults(fn=cmd_cv)
     p = sub.add_parser("apply", help="browser-assisted apply"); p.add_argument("--job", required=True)
     p.add_argument("--submit", action="store_true", help="allow final submit (still gated by config)")
     p.add_argument("--headless", action="store_true"); p.set_defaults(fn=cmd_apply)
