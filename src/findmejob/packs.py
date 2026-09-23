@@ -45,7 +45,8 @@ def build_pack(cfg: Config, tracker: Tracker, job_query: str) -> dict[str, Any]:
     pack_dir = cfg.output_dir / "packs" / f"{_safe_name(job.company)}_{job.id}"
     pack_dir.mkdir(parents=True, exist_ok=True)
 
-    fit = score_fit(profile, job, cfg.search.get("role_keywords", []))
+    from .priority import effective_role_keywords
+    fit = score_fit(profile, job, effective_role_keywords(cfg.raw))
     report = evaluate_requirements(profile, job)
     report_path = pack_dir / "fit_report.md"
     report_path.write_text(render_report_markdown(report, fit.score, fit.reasons),
