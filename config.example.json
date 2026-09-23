@@ -45,6 +45,94 @@
     ],
     "cache_ttl_seconds": 3600
   },
+  "priority": {
+    "tiers": [
+      "first",
+      "high",
+      "medium",
+      "backup"
+    ],
+    "title_groups": [
+      {
+        "name": "Core role",
+        "tier": "first",
+        "titles": [
+          "data analyst",
+          "analytics specialist",
+          "business intelligence analyst"
+        ],
+        "stretch_titles": [
+          "head of analytics"
+        ]
+      },
+      {
+        "name": "Close variant",
+        "tier": "first",
+        "titles": [
+          "product analyst",
+          "marketing analyst"
+        ]
+      },
+      {
+        "name": "Adjacent role",
+        "tier": "high",
+        "titles": [
+          "data engineer",
+          "reporting specialist"
+        ]
+      },
+      {
+        "name": "Backup",
+        "tier": "backup",
+        "titles": [
+          "operations analyst"
+        ]
+      }
+    ],
+    "seniority": {
+      "in_range": [
+        "specialist",
+        "senior",
+        "lead"
+      ],
+      "stretch": [
+        "head of",
+        "director"
+      ]
+    },
+    "locations": [
+      {
+        "name": "Your city",
+        "match": [
+          "your-city"
+        ]
+      },
+      {
+        "name": "Your country",
+        "match": [
+          "your-country"
+        ]
+      },
+      {
+        "name": "Remote in your region",
+        "match": [
+          "your-region"
+        ],
+        "remote": true
+      }
+    ],
+    "remote_anywhere_rank": "last",
+    "industries": {
+      "prefer": [
+        "industry-you-prefer"
+      ],
+      "deprioritise": [
+        "industry-you-rank-lower"
+      ]
+    },
+    "wave_order": "title_first",
+    "unlisted_titles": "review"
+  },
   "policy": {
     "salary_floor": 0,
     "currency": "USD",
