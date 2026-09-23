@@ -21,6 +21,12 @@ you prefer to edit by hand. JSON only; secrets never go here (they live in
 - `cache_ttl_seconds` (default 3600) - how long a fetched source response is
   reused before revalidation. 0 disables caching. See docs/sources.md.
 
+## priority
+
+Your ranked title groups, ordered locations and tie-breakers. Drives
+search order, ranking and which roles count as targets. Full guide:
+docs/priority.md.
+
 ## policy
 
 - `salary_floor` - yearly number in `currency`. Roles with a stated salary
