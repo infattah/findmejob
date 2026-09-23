@@ -229,6 +229,121 @@ def cmd_doctor(args) -> int:
     return 1 if failed else 0
 
 
+def _priority_ctx(args):
+    from .priority import PriorityConfigError, load_priority
+    cfg = load_config(Path(args.dir) if args.dir else None)
+    try:
+        pri = load_priority(cfg.raw)
+    except PriorityConfigError as exc:
+        print(f"priority config problem: {exc}", file=sys.stderr)
+        return cfg, None
+    if not pri.enabled:
+        print("No priority list yet. Add a \"priority\" section to config.json "
+              "(see docs/priority.md) or run: findmejob priority add --group NAME "
+              "--tier first --title \"your title\"", file=sys.stderr)
+        return cfg, None
+    return cfg, pri
+
+
+def cmd_priority_plan(args) -> int:
+    import json
+    cfg, pri = _priority_ctx(args)
+    if pri is None:
+        return 1
+    plan = pri.search_plan(include_stretch=args.stretch)
+    if args.json:
+        print(json.dumps(plan, indent=2))
+        return 0
+    for w in plan:
+        where = w["location"] or "any location"
+        titles = ", ".join(q["title"] for q in w["queries"])
+        print(f"Wave {w['wave']}: {w['tier']} tier in {where} - {len(w['queries'])} queries")
+        print(f"    {titles}")
+    return 0
+
+
+def cmd_priority_rank(args) -> int:
+    import json
+    from .priority import rank_jobs
+    cfg, pri = _priority_ctx(args)
+    if pri is None:
+        return 1
+    tracker = Tracker(cfg.db_path)
+    pairs = []
+    for r in tracker.list_jobs(status=args.status):
+        if not args.status and r["status"] == "skipped":
+            continue  # knocked out by policy/priority; see them with --status skipped
+        job = tracker.get_job(r["id"])
+        if job is not None:
+            pairs.append((job, r["score"]))
+    ranked = rank_jobs(pri, pairs)
+    if args.listed_only:
+        ranked = [x for x in ranked if x[0].listed]
+    ranked = ranked[: args.limit] if args.limit else ranked
+    if args.json:
+        print(json.dumps([{**p.to_dict(), "score": s} for p, s in ranked], indent=2))
+        return 0
+    if not ranked:
+        print("No jobs.")
+    for p, score in ranked:
+        wave = f"wave {p.wave}" if p.wave is not None else "unranked"
+        print(f"[{p.job_id}] {wave} | {p.title} @ {p.company} ({p.location or 'no location'})"
+              + (f" score {score}" if score is not None else ""))
+        print("    " + "; ".join(p.reasons))
+    return 0
+
+
+def cmd_priority_add(args) -> int:
+    from .priority import PriorityConfigError, add_title
+    cfg = load_config(Path(args.dir) if args.dir else None)
+    cfg_path = cfg.root / "config.json"
+    if not cfg_path.exists():
+        print("No config.json - run: findmejob init (or setup) first.", file=sys.stderr)
+        return 1
+    try:
+        res = add_title(cfg_path, args.group, " ".join(args.title), stretch=args.stretch,
+                        tier=args.tier)
+    except PriorityConfigError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    if res["added"]:
+        print(f"Added to '{res['group']}'" + (" (new group)" if res["created_group"] else "")
+              + (" as a stretch title." if args.stretch else "."))
+    else:
+        print(f"Not added: {res.get('reason')}.")
+    return 0
+
+
+def cmd_priority_suggest(args) -> int:
+    from .priority import suggest_titles
+    from .scoring import score_fit
+    cfg, pri = _priority_ctx(args)
+    if pri is None:
+        return 1
+    tracker = Tracker(cfg.db_path)
+    try:
+        profile = load_profile(cfg)
+    except FileNotFoundError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    pairs = []
+    for r in tracker.list_jobs():
+        job = tracker.get_job(r["id"])
+        if job is not None:
+            # Score without the title bonus so an unlisted title is judged on the
+            # CV overlap alone.
+            pairs.append((job, score_fit(profile, job, None).score))
+    found = suggest_titles(pri, pairs, min_score=args.min_score, limit=args.limit)
+    if not found:
+        print("No new title candidates. Everything that fits is already on your list.")
+        return 0
+    print("Titles that fit your CV but are not on your list yet (you decide):")
+    for c in found:
+        print(f"  - {c['title']} (seen {c['seen']}x, CV overlap {c['best_score']})")
+    print("Add one with: findmejob priority add --group \"GROUP\" --title \"TITLE\"")
+    return 0
+
+
 def cmd_status(args) -> int:
     _, tracker = _agent(args)
     counts = tracker.counts()
@@ -356,6 +471,22 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("apply", help="browser-assisted apply"); p.add_argument("--job", required=True)
     p.add_argument("--submit", action="store_true", help="allow final submit (still gated by config)")
     p.add_argument("--headless", action="store_true"); p.set_defaults(fn=cmd_apply)
+    p = sub.add_parser("priority", help="your job priority list: plan, rank, add, suggest")
+    psub = p.add_subparsers(dest="priority_cmd", required=True)
+    q = psub.add_parser("plan", help="wave-ordered title x location search plan")
+    q.add_argument("--stretch", action="store_true", help="include stretch titles")
+    q.add_argument("--json", action="store_true"); q.set_defaults(fn=cmd_priority_plan)
+    q = psub.add_parser("rank", help="tracked jobs in priority order")
+    q.add_argument("--status"); q.add_argument("--limit", type=int, default=0)
+    q.add_argument("--listed-only", action="store_true")
+    q.add_argument("--json", action="store_true"); q.set_defaults(fn=cmd_priority_rank)
+    q = psub.add_parser("add", help="add a title to your list (living list)")
+    q.add_argument("--group", required=True); q.add_argument("--title", required=True, nargs="+")
+    q.add_argument("--stretch", action="store_true"); q.add_argument("--tier")
+    q.set_defaults(fn=cmd_priority_add)
+    q = psub.add_parser("suggest", help="fitting titles seen in tracked jobs but not on your list")
+    q.add_argument("--min-score", type=int, default=45); q.add_argument("--limit", type=int, default=20)
+    q.set_defaults(fn=cmd_priority_suggest)
     p = sub.add_parser("status", help="tracker overview"); p.set_defaults(fn=cmd_status)
     p = sub.add_parser("list", help="list jobs"); p.add_argument("--status"); p.set_defaults(fn=cmd_list)
     p = sub.add_parser("pending", help="list pending questions"); p.set_defaults(fn=cmd_pending)
