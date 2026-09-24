@@ -160,6 +160,18 @@ def doctor(root: Path) -> list[tuple[str, str]]:
         if not (profile.full_name or cfg.profile.get("full_name")):
             checks.append(("warn", "no name on the CV or in config"))
 
+    from .priority import PriorityConfigError, load_priority
+    try:
+        pri = load_priority(cfg.raw)
+        if pri.enabled:
+            checks.append(("ok", f"priority list: {len(pri.groups)} title groups, "
+                                 f"{len(pri.all_titles())} titles, {len(pri.locations)} locations"))
+        else:
+            checks.append(("warn", "no priority list - jobs are not ranked "
+                                   "(see docs/priority.md)"))
+    except PriorityConfigError as exc:
+        checks.append(("fail", f"priority list is invalid: {exc}"))
+
     sources = cfg.search.get("sources", [])
     if not sources:
         checks.append(("warn", "no job sources configured - add some under search.sources "

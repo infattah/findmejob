@@ -12,6 +12,7 @@ from .emailer import save_draft
 from .httpcache import HttpCache
 from .models import JobPosting, Profile
 from .policy import check_job
+from .priority import effective_role_keywords, load_priority
 from .profile import parse_master_cv, extract_text
 from .render.pdf import render_cv_pdf
 from .scoring import score_fit
@@ -54,7 +55,8 @@ def run_search(cfg: Config, tracker: Tracker) -> dict[str, Any]:
         spec = dict(raw_spec)
         if spec.get("type") == "jsonfile" and spec.get("path"):
             spec["path"] = str(cfg.resolve(spec["path"]))
-        specs.append(spec)
+        specs.extend(expand_priority_queries(cfg, spec))
+    priority = _priority_or_none(cfg)
     cache = _build_cache(cfg)
     configure_cache(cache)
     try:
@@ -84,11 +86,17 @@ def run_search(cfg: Config, tracker: Tracker) -> dict[str, Any]:
         status = "new"
         if verdict.verdict == "block":
             status = "skipped"
+        elif (priority is not None and priority.unlisted_titles == "skip"
+              and priority.match_title(job.title) is None):
+            status = "skipped"
         if tracker.upsert_job(job, verdict=verdict.verdict, status=status):
             remember_routes(job.id,job)
             new_count += 1
             if verdict.verdict == "block":
                 tracker.add_event(job.id, "policy_block", "; ".join(verdict.reasons))
+            elif status == "skipped":
+                tracker.add_event(job.id, "priority_skip",
+                                  "title is not on the priority list (unlisted_titles=skip)")
     for kept, dupe in batch_dupes:
         added=remember_routes(kept.id,dupe)
         if added:
@@ -126,6 +134,30 @@ def enrich_from_listing(jobs: list[JobPosting]) -> dict[str, int]:
     return {"salary": salary, "emails": emails}
 
 
+def _priority_or_none(cfg: Config):
+    """Priority config when one is set; a broken one raises with a clear message."""
+    pri = load_priority(getattr(cfg, "raw", None) or {})
+    return pri if pri.enabled else None
+
+
+def expand_priority_queries(cfg: Config, spec: dict[str, Any]) -> list[dict[str, Any]]:
+    """A source whose "search" is "{priority}" runs once per list title, best wave first.
+
+    Capped by search.max_priority_queries (default 20) so one config line
+    cannot fan out into hundreds of requests.
+    """
+    if spec.get("search") != "{priority}":
+        return [spec]
+    pri = load_priority(getattr(cfg, "raw", None) or {})
+    cap = int(cfg.search.get("max_priority_queries", 20))
+    titles: list[str] = []
+    for wave in pri.search_plan():
+        for q in wave["queries"]:
+            if q["title"].lower() not in {t.lower() for t in titles}:
+                titles.append(q["title"])
+    return [{**spec, "search": t} for t in titles[:max(cap, 0)]]
+
+
 def _has_substantive_job_evidence(job: JobPosting) -> bool:
     """Use evidence categories rather than length as a quality proxy."""
     text = job.description or ""
@@ -148,6 +180,7 @@ def run_triage(cfg: Config, tracker: Tracker, job_id: str | None = None) -> dict
     from .qualification import qualify
     from .signal_adapter import build_signals
     profile = load_profile(cfg)
+    role_keywords = effective_role_keywords(getattr(cfg, "raw", None) or {"search": cfg.search})
     counts = {"strong": 0, "plausible": 0, "insufficient_evidence": 0,
               "policy_review": 0, "stale": 0, "reject": 0}
     for row in tracker.list_jobs():
@@ -157,13 +190,13 @@ def run_triage(cfg: Config, tracker: Tracker, job_id: str | None = None) -> dict
             continue
         job = tracker.get_job(row["id"])
         if not job: continue
-        fit = score_fit(profile, job, cfg.search.get("role_keywords", []))
+        fit = score_fit(profile, job, role_keywords)
         report = evaluate_requirements(profile, job)
         tracker.conn.execute("UPDATE jobs SET score=?, updated=? WHERE id=?", (fit.score, __import__("time").time(), job.id))
         tracker.conn.commit()
         _write_fit_report(cfg, tracker, profile, job, fit, report)
         signals = build_signals(profile=profile, job=job, policy=cfg.policy,
-                                role_keywords=cfg.search.get("role_keywords", []), tracker=tracker)
+                                role_keywords=role_keywords, tracker=tracker)
         result = qualify(signals)
         tracker.set_qualification(job.id, result, signals)
         counts[result.decision] += 1

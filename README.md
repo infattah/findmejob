@@ -34,6 +34,7 @@ python -m pip install .      # regular, non-editable install
 findmejob setup                      # guided: plain questions -> config.json
 findmejob ingest --cv path/to/master_cv.md
 findmejob doctor                     # checks your setup, says what is missing
+findmejob priority plan              # your title x location priority list, as search waves
 findmejob search                     # pulls from your configured sources (cached)
 findmejob triage                     # policy check + fit score + evidence report
 findmejob tailor --job <id>          # tailored CV (Markdown + PDF) + email draft
@@ -46,6 +47,8 @@ findmejob agencies --country <name>  # discover + validate recruitment agencies 
 findmejob pack --job <id>            # one folder with everything for that application
 findmejob apply --job <id>           # browser-assisted apply (dry-run by default)
 findmejob refresh --verify           # drop listings that have expired
+findmejob priority rank              # tracked jobs, best bets first
+findmejob priority suggest           # fitting titles not on your list yet
 findmejob status                     # tracker overview
 ```
 
