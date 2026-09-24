@@ -229,6 +229,67 @@ def cmd_doctor(args) -> int:
     return 1 if failed else 0
 
 
+def _hunt_one(cfg, tracker, job_id: str, args) -> None:
+    from .emailfinder import FinderInput, finder_from_config
+    job = tracker.get_job(job_id)
+    domain, confirmed = (args.domain or ""), bool(args.domain and args.confirmed)
+    ver = tracker.get_verification(job_id)
+    if not domain and ver and ver.official_domain:
+        domain, confirmed = ver.official_domain, ver.status == "verified"
+    pages = []
+    if args.pages:
+        import json
+        pages = json.loads(Path(args.pages).read_text(encoding="utf-8"))
+    finder_cfg = dict(cfg.raw.get("email_finder", {}))
+    if args.no_search:
+        finder_cfg["search_provider"] = "none"
+    finder = finder_from_config(finder_cfg)
+    listing = job.description + ("\n" + "\n".join(job.contact_emails) if job.contact_emails else "")
+    hunt = finder.run(FinderInput(company=job.company, official_domain=domain,
+                                  domain_confirmed=confirmed, listing_text=listing,
+                                  listing_url=job.url, supplied_pages=pages))
+    tracker.set_email_hunt(job_id, hunt)
+    print(f"[{job_id}] {job.title} @ {job.company}: {hunt.summary()}")
+    for m in hunt.methods:
+        print(f"    {m.name:<14} {m.status:<8} {m.detail}")
+    for e in hunt.emails:
+        mark = "VERIFIED" if e.verified else "unverified"
+        print(f"    {mark:<10} {e.address} ({e.role}, {e.method}) {e.source_url}"
+              + (f" - {'; '.join(e.notes)}" if e.notes else ""))
+
+
+def cmd_emails(args) -> int:
+    cfg = load_config(Path(args.dir) if args.dir else None)
+    tracker = Tracker(cfg.db_path)
+    if args.outcome:
+        job_id = tracker.resolve_job_id(args.job or "")
+        if not job_id:
+            print("--outcome needs --job", file=sys.stderr)
+            return 1
+        try:
+            tracker.set_email_outcome(job_id, args.outcome, args.proof or "")
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        print(f"[{job_id}] email {args.outcome}")
+        return 0
+    if args.all:
+        ids = tracker.jobs_needing_email_hunt()
+        if not ids:
+            print("Every qualified role already has a finished email hunt.")
+    else:
+        job_id = tracker.resolve_job_id(args.job or "")
+        if not job_id:
+            print(f"no job matching '{args.job}'", file=sys.stderr)
+            return 1
+        ids = [job_id]
+    for job_id in ids:
+        _hunt_one(cfg, tracker, job_id, args)
+    counts = tracker.email_stage_counts()
+    print("\nApplied roles by email route: " + ", ".join(f"{k.replace('applied_', '')} {v}" for k, v in counts.items()))
+    return 0
+
+
 def cmd_status(args) -> int:
     _, tracker = _agent(args)
     counts = tracker.counts()
@@ -236,6 +297,10 @@ def cmd_status(args) -> int:
         print("Tracker is empty.")
     for k, v in sorted(counts.items()):
         print(f"  {k}: {v}")
+    if counts.get("applied"):
+        print("  email route for applied roles:")
+        for k, v in tracker.email_stage_counts().items():
+            print(f"    {k.replace('applied_', '')}: {v}")
     pend = tracker.pending()
     if pend:
         print(f"\nPending questions ({len(pend)}):")
@@ -255,6 +320,13 @@ def cmd_list(args) -> int:
               + (f" (score {r['score']})" if r["score"] is not None else ""))
         if r["url"]:
             print(f"    {r['url']}")
+        if r.get("salary_text"):
+            print(f"    salary: {r['salary_text']}")
+        email = r.get("email") or {}
+        if email.get("address"):
+            print(f"    email: {email['address']} ({email['outcome']})")
+        elif r.get("contact_emails"):
+            print(f"    listed emails: {', '.join(r['contact_emails'])} (run: findmejob emails --job {r['id']})")
     return 0
 
 
@@ -356,6 +428,19 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("apply", help="browser-assisted apply"); p.add_argument("--job", required=True)
     p.add_argument("--submit", action="store_true", help="allow final submit (still gated by config)")
     p.add_argument("--headless", action="store_true"); p.set_defaults(fn=cmd_apply)
+    p = sub.add_parser("emails", help="find verified contact emails (every method before 'none')")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--job", help="tracked job id or search text")
+    g.add_argument("--all", action="store_true",
+                   help="every applied/ready/shortlisted role whose hunt is missing, incomplete or failed")
+    p.add_argument("--domain", default="", help="official company domain, e.g. example.com")
+    p.add_argument("--confirmed", action="store_true",
+                   help="the --domain was checked against the official site/LinkedIn")
+    p.add_argument("--pages", help="JSON file of pages you opened: [{method,url,text}] (LinkedIn, registry...)")
+    p.add_argument("--no-search", action="store_true", help="do not use a web search provider")
+    p.add_argument("--outcome", choices=["sent", "failed", "pending"], help="record the follow-up result")
+    p.add_argument("--proof", help="sent-message id or link (required with --outcome sent)")
+    p.set_defaults(fn=cmd_emails)
     p = sub.add_parser("status", help="tracker overview"); p.set_defaults(fn=cmd_status)
     p = sub.add_parser("list", help="list jobs"); p.add_argument("--status"); p.set_defaults(fn=cmd_list)
     p = sub.add_parser("pending", help="list pending questions"); p.set_defaults(fn=cmd_pending)
