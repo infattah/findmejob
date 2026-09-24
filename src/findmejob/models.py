@@ -27,6 +27,9 @@ class JobPosting:
     source_liveness: str = ""
     source_liveness_detail: str = ""
     source_liveness_checked_at: float = 0.0
+    # Addresses printed in the listing itself (read, never guessed). The email
+    # finder treats these as the "listing" method with the listing URL as source.
+    contact_emails: list[str] = field(default_factory=list)
     id: str = ""
 
     def __post_init__(self) -> None:
