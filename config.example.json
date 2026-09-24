@@ -83,5 +83,15 @@
     "output": "output",
     "browser_profile": "data/browser-profile",
     "cache": "data/http-cache"
+  },
+  "email_finder": {
+    "_comment": "Verified-address hunt for the email route. Addresses are only read from public pages, never guessed. 'none' disables search-based methods; the hunt then stays 'incomplete' instead of claiming no address exists. search_provider: duckduckgo | searxng (set searxng_url) | none. If the provider blocks automated queries, the hunt reports it as not run; supply pages you opened with --pages.",
+    "search_provider": "duckduckgo",
+    "searxng_url": "",
+    "max_site_pages": 14,
+    "max_search_pages": 4,
+    "registry_sites": [
+      "opencorporates.com"
+    ]
   }
 }
