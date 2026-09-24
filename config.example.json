@@ -171,5 +171,33 @@
     "output": "output",
     "browser_profile": "data/browser-profile",
     "cache": "data/http-cache"
+  },
+  "email_finder": {
+    "_comment": "Verified-address hunt for the email route. Addresses are only read from public pages, never guessed. 'none' disables search-based methods; the hunt then stays 'incomplete' instead of claiming no address exists. search_provider: duckduckgo | searxng (set searxng_url) | none. If the provider blocks automated queries, the hunt reports it as not run; supply pages you opened with --pages.",
+    "search_provider": "duckduckgo",
+    "searxng_url": "",
+    "max_site_pages": 14,
+    "max_search_pages": 4,
+    "registry_sites": [
+      "opencorporates.com"
+    ]
+  },
+  "agency_finder": {
+    "_comment": "Recruitment-agency discovery and validation (findmejob agencies). Nothing here is tied to a region: country, city and industry come from the command line. Every method reports found/empty/not_run/error, so a blocked or unconfigured method is never read as 'no agencies'. Search uses the email_finder provider unless search_provider is set here. maps needs a Google Places API key in the environment variable named by maps_api_key_env; without it the method reports not_run. Add directory_sites and job_board_sites that matter where you are looking; agency_keywords and search_terms can be extended for other languages.",
+    "methods": [],
+    "search_terms": [
+      "recruitment agency",
+      "recruitment consultancy",
+      "staffing agency",
+      "employment agency",
+      "executive search firm"
+    ],
+    "agency_keywords": [],
+    "directory_sites": [],
+    "job_board_sites": [],
+    "aggregator_hosts": [],
+    "maps_api_key_env": "GOOGLE_MAPS_API_KEY",
+    "max_directory_pages": 6,
+    "overpass_url": "https://overpass-api.de/api/interpreter"
   }
 }

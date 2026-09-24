@@ -229,6 +229,150 @@ def cmd_doctor(args) -> int:
     return 1 if failed else 0
 
 
+def _hunt_one(cfg, tracker, job_id: str, args) -> None:
+    from .emailfinder import FinderInput, finder_from_config
+    job = tracker.get_job(job_id)
+    domain, confirmed = (args.domain or ""), bool(args.domain and args.confirmed)
+    ver = tracker.get_verification(job_id)
+    if not domain and ver and ver.official_domain:
+        domain, confirmed = ver.official_domain, ver.status == "verified"
+    pages = []
+    if args.pages:
+        import json
+        pages = json.loads(Path(args.pages).read_text(encoding="utf-8"))
+    finder_cfg = dict(cfg.raw.get("email_finder", {}))
+    if args.no_search:
+        finder_cfg["search_provider"] = "none"
+    finder = finder_from_config(finder_cfg)
+    listing = job.description + ("\n" + "\n".join(job.contact_emails) if job.contact_emails else "")
+    hunt = finder.run(FinderInput(company=job.company, official_domain=domain,
+                                  domain_confirmed=confirmed, listing_text=listing,
+                                  listing_url=job.url, supplied_pages=pages))
+    tracker.set_email_hunt(job_id, hunt)
+    print(f"[{job_id}] {job.title} @ {job.company}: {hunt.summary()}")
+    for m in hunt.methods:
+        print(f"    {m.name:<14} {m.status:<8} {m.detail}")
+    for e in hunt.emails:
+        mark = "VERIFIED" if e.verified else "unverified"
+        print(f"    {mark:<10} {e.address} ({e.role}, {e.method}) {e.source_url}"
+              + (f" - {'; '.join(e.notes)}" if e.notes else ""))
+
+
+def cmd_emails(args) -> int:
+    cfg = load_config(Path(args.dir) if args.dir else None)
+    tracker = Tracker(cfg.db_path)
+    if args.outcome:
+        job_id = tracker.resolve_job_id(args.job or "")
+        if not job_id:
+            print("--outcome needs --job", file=sys.stderr)
+            return 1
+        try:
+            tracker.set_email_outcome(job_id, args.outcome, args.proof or "")
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        print(f"[{job_id}] email {args.outcome}")
+        return 0
+    if args.all:
+        ids = tracker.jobs_needing_email_hunt()
+        if not ids:
+            print("Every qualified role already has a finished email hunt.")
+    else:
+        job_id = tracker.resolve_job_id(args.job or "")
+        if not job_id:
+            print(f"no job matching '{args.job}'", file=sys.stderr)
+            return 1
+        ids = [job_id]
+    for job_id in ids:
+        _hunt_one(cfg, tracker, job_id, args)
+    counts = tracker.email_stage_counts()
+    print("\nApplied roles by email route: " + ", ".join(f"{k.replace('applied_', '')} {v}" for k, v in counts.items()))
+    return 0
+
+
+def _print_agency(a, verbose: bool = False) -> None:
+    site = f" https://{a.domain}/" if a.domain else ""
+    print(f"[{a.id}] {a.name}{site} - {a.summary()}")
+    if a.found_by:
+        print(f"    found by: {', '.join(a.found_by)}")
+    for c in a.checks:
+        print(f"    {c.name:<14} {c.status:<8} {c.detail}")
+    if verbose:
+        for f in a.facts:
+            print(f"    fact {f.field}: {f.value} <- {f.source_url} ({f.method})"
+                  + (f" - {f.note}" if f.note else ""))
+
+
+def cmd_agencies(args) -> int:
+    from .agencies import DiscoveryRequest, build_from_config
+    cfg = load_config(Path(args.dir) if args.dir else None)
+    tracker = Tracker(cfg.db_path)
+    if args.agency:
+        agency_id = tracker.resolve_agency_id(args.agency)
+        if not agency_id:
+            print(f"no single agency matching '{args.agency}'", file=sys.stderr)
+            return 1
+        if args.outcome == "contacted":
+            try:
+                tracker.set_agency_contacted(agency_id, args.proof or "")
+            except ValueError as exc:
+                print(exc, file=sys.stderr)
+                return 1
+            print(f"[{agency_id}] contacted")
+            return 0
+        _print_agency(tracker.get_agency(agency_id), verbose=True)
+        return 0
+    if args.list:
+        rows = tracker.list_agencies(args.status, args.for_country or None)
+        if not rows:
+            print("No agencies tracked" + (f" with status {args.status}" if args.status else "") + ".")
+        for a in rows:
+            _print_agency(a, verbose=args.evidence)
+        counts = tracker.agency_counts()
+        print("\nAgencies by status: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
+        return 0
+    discovery, validator = build_from_config(cfg.raw, no_search=args.no_search)
+    af = cfg.raw.get("agency_finder", {})
+    if args.revalidate:
+        targets = [a for a in tracker.list_agencies(args.status, args.for_country or None) if a.status != "contacted"]
+        maps_ran = maps_key = bool(discovery.maps_api_key)
+    else:
+        supplied = None
+        if args.pages:
+            import json
+            supplied = json.loads(Path(args.pages).read_text(encoding="utf-8"))
+        methods = [m for m in (args.methods or ",".join(af.get("methods", []))).split(",") if m.strip()]
+        skip = [m for m in (args.skip or "").split(",") if m.strip()]
+        req = DiscoveryRequest(country=args.country, city=args.city or "", industry=args.industry or "",
+                               country_code=args.country_code or "", limit=args.limit)
+        try:
+            run = discovery.run(req, methods=[m.strip() for m in methods] or None,
+                                skip=[m.strip() for m in skip], jobs=tracker.all_jobs(), supplied=supplied)
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        print(f"Discovery for {', '.join(p for p in (args.city, args.country) if p)}"
+              + (f" ({args.industry})" if args.industry else "") + ":")
+        for m in run.methods:
+            print(f"    {m.name:<14} {m.status:<8} {m.detail}")
+        print(run.summary())
+        for a in run.agencies:
+            tracker.upsert_agency(a)
+        targets = [] if args.no_validate else [tracker.get_agency(a.id) for a in run.agencies]
+        ran = {m.name for m in run.methods if m.status in ("found", "empty")}
+        maps_ran, maps_key = bool(ran & {"maps", "openstreetmap"}), "maps" in ran
+    for a in targets:
+        if a is None or a.status == "contacted":
+            continue
+        previous = a.id
+        validator.validate(a, maps_ran=maps_ran, maps_key=maps_key)
+        tracker.upsert_agency(a, previous_id=previous)
+        _print_agency(a)
+    counts = tracker.agency_counts()
+    print("\nAgencies by status: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
+    return 0
+
+
 def _priority_ctx(args):
     from .priority import PriorityConfigError, load_priority
     cfg = load_config(Path(args.dir) if args.dir else None)
@@ -351,6 +495,13 @@ def cmd_status(args) -> int:
         print("Tracker is empty.")
     for k, v in sorted(counts.items()):
         print(f"  {k}: {v}")
+    agencies = {k: v for k, v in tracker.agency_counts().items() if v}
+    if agencies:
+        print("  recruitment agencies: " + ", ".join(f"{k} {v}" for k, v in agencies.items()))
+    if counts.get("applied"):
+        print("  email route for applied roles:")
+        for k, v in tracker.email_stage_counts().items():
+            print(f"    {k.replace('applied_', '')}: {v}")
     pend = tracker.pending()
     if pend:
         print(f"\nPending questions ({len(pend)}):")
@@ -370,6 +521,13 @@ def cmd_list(args) -> int:
               + (f" (score {r['score']})" if r["score"] is not None else ""))
         if r["url"]:
             print(f"    {r['url']}")
+        if r.get("salary_text"):
+            print(f"    salary: {r['salary_text']}")
+        email = r.get("email") or {}
+        if email.get("address"):
+            print(f"    email: {email['address']} ({email['outcome']})")
+        elif r.get("contact_emails"):
+            print(f"    listed emails: {', '.join(r['contact_emails'])} (run: findmejob emails --job {r['id']})")
     return 0
 
 
@@ -471,6 +629,41 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("apply", help="browser-assisted apply"); p.add_argument("--job", required=True)
     p.add_argument("--submit", action="store_true", help="allow final submit (still gated by config)")
     p.add_argument("--headless", action="store_true"); p.set_defaults(fn=cmd_apply)
+    p = sub.add_parser("emails", help="find verified contact emails (every method before 'none')")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--job", help="tracked job id or search text")
+    g.add_argument("--all", action="store_true",
+                   help="every applied/ready/shortlisted role whose hunt is missing, incomplete or failed")
+    p.add_argument("--domain", default="", help="official company domain, e.g. example.com")
+    p.add_argument("--confirmed", action="store_true",
+                   help="the --domain was checked against the official site/LinkedIn")
+    p.add_argument("--pages", help="JSON file of pages you opened: [{method,url,text}] (LinkedIn, registry...)")
+    p.add_argument("--no-search", action="store_true", help="do not use a web search provider")
+    p.add_argument("--outcome", choices=["sent", "failed", "pending"], help="record the follow-up result")
+    p.add_argument("--proof", help="sent-message id or link (required with --outcome sent)")
+    p.set_defaults(fn=cmd_emails)
+    p = sub.add_parser("agencies", help="discover and validate recruitment agencies (any country/industry)")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--country", help="country name or ISO code to search, e.g. 'New Zealand' or NZ")
+    g.add_argument("--list", action="store_true", help="show tracked agencies")
+    g.add_argument("--revalidate", action="store_true", help="re-run validation on tracked agencies")
+    g.add_argument("--agency", help="agency id, name or domain: show its evidence, or record --outcome")
+    p.add_argument("--city", default="", help="narrow to a city or region")
+    p.add_argument("--industry", default="", help="industry or role family, e.g. 'nursing' or 'marketing'")
+    p.add_argument("--country-code", default="", help="ISO 3166-1 alpha-2 code when the name cannot be resolved")
+    p.add_argument("--methods", default="", help="comma list of discovery methods to run (default: all)")
+    p.add_argument("--skip", default="", help="comma list of discovery methods to skip")
+    p.add_argument("--pages", help="JSON file of pages or candidates you opened: [{url,text}] or [{name,website,source_url}]")
+    p.add_argument("--no-search", action="store_true", help="do not use a web search provider")
+    p.add_argument("--no-validate", action="store_true", help="discover only; validate later with --revalidate")
+    p.add_argument("--limit", type=int, default=50, help="max agencies kept per run")
+    p.add_argument("--status", choices=["discovered", "validated", "contacted", "no_verified_contact"],
+                   help="filter for --list / --revalidate")
+    p.add_argument("--for-country", default="", help="filter for --list / --revalidate")
+    p.add_argument("--evidence", action="store_true", help="with --list: print every fact and its source")
+    p.add_argument("--outcome", choices=["contacted"], help="with --agency: record that you contacted it")
+    p.add_argument("--proof", help="sent-message id or link (required with --outcome contacted)")
+    p.set_defaults(fn=cmd_agencies)
     p = sub.add_parser("priority", help="your job priority list: plan, rank, add, suggest")
     psub = p.add_subparsers(dest="priority_cmd", required=True)
     q = psub.add_parser("plan", help="wave-ordered title x location search plan")

@@ -63,6 +63,7 @@ def run_search(cfg: Config, tracker: Tracker) -> dict[str, Any]:
         jobs, errors = fetch_all(specs)
     finally:
         configure_cache(None)
+    enriched = enrich_from_listing(jobs)
 
     # cross-source dedupe: within this batch, then against the tracker
     unique, batch_dupes = dedupe_batch(jobs)
@@ -106,7 +107,31 @@ def run_search(cfg: Config, tracker: Tracker) -> dict[str, Any]:
                       f"{len(jobs)} fetched, {new_count} new, {dup_count} duplicates merged, "
                       f"{len(errors)} source errors")
     return {"fetched": len(jobs), "new": new_count, "duplicates": dup_count,
-            "errors": errors}
+            "errors": errors, "salary_found": enriched["salary"],
+            "emails_found": enriched["emails"]}
+
+
+def enrich_from_listing(jobs: list[JobPosting]) -> dict[str, int]:
+    """Fill facts the listing states but the source adapter left empty.
+
+    - salary_text: the pay sentence from the description, kept verbatim
+      (only when the source gave no salary field).
+    - contact_emails: addresses printed in the description.
+    Nothing is inferred; a listing that says nothing gets nothing."""
+    from .emailfinder import extract_emails
+    from .salary import extract_salary_text
+    salary = emails = 0
+    for job in jobs:
+        if not job.salary_text:
+            found = extract_salary_text(job.description)
+            if found:
+                job.salary_text = found
+                salary += 1
+        listed = extract_emails(job.description)
+        if listed:
+            job.contact_emails = list(dict.fromkeys(list(job.contact_emails) + listed))
+            emails += 1
+    return {"salary": salary, "emails": emails}
 
 
 def _priority_or_none(cfg: Config):
