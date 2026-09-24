@@ -72,6 +72,14 @@ CREATE TABLE IF NOT EXISTS company_verifications (
   data TEXT NOT NULL,
   updated REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS agencies (
+  id TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'discovered',
+  country TEXT DEFAULT '',
+  first_seen REAL NOT NULL,
+  updated REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts REAL NOT NULL,
@@ -383,6 +391,95 @@ class Tracker:
             if e["outcome"] == "failed" or e["hunt"] in ("not_run", "incomplete"):
                 out.append(r["id"])
         return out
+
+    # recruitment agencies (see agencies.py)
+    def upsert_agency(self, agency, previous_id: str | None = None) -> str:
+        """Store an Agency. An existing record keeps its facts (new ones are
+        added) and a 'contacted' agency keeps its status and proof. When
+        validation found the website of a name-only record its id changes;
+        pass previous_id and the old row is folded into the new one."""
+        from .agencies import Agency
+        if previous_id and previous_id != agency.id:
+            prev = self.get_agency(previous_id)
+            if prev is not None:
+                agency.merge(prev)
+                if prev.status == "contacted":
+                    agency.status, agency.contact_proof = prev.status, prev.contact_proof
+                self.conn.execute("DELETE FROM agencies WHERE id=?", (previous_id,))
+        row = self.conn.execute("SELECT data FROM agencies WHERE id=?", (agency.id,)).fetchone()
+        now = time.time()
+        if row:
+            old = Agency.from_dict(json.loads(row["data"]))
+            if agency.checks:
+                old.checks = agency.checks
+                old.email_hunt = agency.email_hunt or old.email_hunt
+                old.checked_at = agency.checked_at
+                if old.status != "contacted":
+                    old.status = agency.status
+                    old.contact_email = agency.contact_email
+                    old.contact_source = agency.contact_source
+            old.merge(agency)
+            agency = old
+            self.conn.execute("UPDATE agencies SET data=?, status=?, country=?, updated=? WHERE id=?",
+                              (json.dumps(agency.to_dict()), agency.status, agency.country, now, agency.id))
+        else:
+            self.conn.execute("INSERT INTO agencies (id,data,status,country,first_seen,updated) VALUES (?,?,?,?,?,?)",
+                              (agency.id, json.dumps(agency.to_dict()), agency.status, agency.country, now, now))
+            self.add_event(None, "agency_discovered", f"{agency.id} {agency.name}")
+        self.conn.commit()
+        return agency.id
+
+    def get_agency(self, agency_id: str):
+        from .agencies import Agency
+        row = self.conn.execute("SELECT data FROM agencies WHERE id=?", (agency_id,)).fetchone()
+        return Agency.from_dict(json.loads(row["data"])) if row else None
+
+    def list_agencies(self, status: str | None = None, country: str | None = None) -> list:
+        from .agencies import Agency
+        q, params = "SELECT data FROM agencies WHERE 1=1", []
+        if status:
+            q += " AND status=?"; params.append(status)
+        if country:
+            q += " AND lower(country)=lower(?)"; params.append(country)
+        rows = self.conn.execute(q + " ORDER BY updated DESC", tuple(params)).fetchall()
+        return [Agency.from_dict(json.loads(r["data"])) for r in rows]
+
+    def resolve_agency_id(self, query: str) -> str | None:
+        query = (query or "").strip()
+        if not query:
+            return None
+        if self.conn.execute("SELECT 1 FROM agencies WHERE id=?", (query,)).fetchone():
+            return query
+        hits = [a.id for a in self.list_agencies()
+                if query.lower() in a.name.lower() or (a.domain and query.lower() == a.domain)]
+        return hits[0] if len(hits) == 1 else None
+
+    def set_agency_contacted(self, agency_id: str, proof: str) -> None:
+        """Mark an agency contacted. Needs a verified contact address on
+        record and proof (sent-message id or link)."""
+        agency = self.get_agency(agency_id)
+        if agency is None:
+            raise ValueError(f"no agency '{agency_id}'")
+        if not proof.strip():
+            raise ValueError("contacted needs proof: the sent-message id or link")
+        if agency.status not in ("validated", "contacted") or not agency.contact_email:
+            raise ValueError("agency has no verified contact address; validate it first")
+        agency.status, agency.contact_proof = "contacted", proof.strip()
+        self.conn.execute("UPDATE agencies SET data=?, status=?, updated=? WHERE id=?",
+                          (json.dumps(agency.to_dict()), agency.status, time.time(), agency_id))
+        self.add_event(None, "agency_contacted", f"{agency_id} {agency.contact_email} proof: {proof.strip()}")
+        self.conn.commit()
+
+    def agency_counts(self) -> dict[str, int]:
+        from .agencies import STATUSES as AGENCY_STATUSES
+        counts = {s: 0 for s in AGENCY_STATUSES}
+        for r in self.conn.execute("SELECT status, COUNT(*) c FROM agencies GROUP BY status").fetchall():
+            counts[r["status"]] = r["c"]
+        return counts
+
+    def all_jobs(self) -> list[JobPosting]:
+        return [JobPosting.from_dict(json.loads(r["data"]))
+                for r in self.conn.execute("SELECT data FROM jobs").fetchall()]
 
     # events
     def add_event(self, job_id: str | None, kind: str, detail: str = "") -> None:
