@@ -168,3 +168,57 @@ def normalize(salary: Salary, base_currency: str, rates: dict[str, float]) -> No
     out.converted = True
     out.notes = notes
     return out
+
+
+# ---------------------------------------------------------------- listing extraction
+
+_PAY_WORDS = re.compile(
+    r"\b(salary|salaries|compensation|remuneration|pay|pay range|package|ctc|wage|wages|"
+    r"stipend|base pay|ote)\b", re.I)
+_MONEY = re.compile(
+    r"(?:(?<![A-Za-z])(?:US\$|[A-Z]{3})\s?\d|[€£₹$﷼]\s?\d|\d[\d,.]*\s?[kK]?\s?(?:[A-Z]{3})(?![A-Za-z])|د\.إ)")
+_NOT_PAY = re.compile(r"\b(revenue|turnover|funding|raised|valuation|budget|billion|million|years?|yrs)\b", re.I)
+
+
+def _period_marked(text: str) -> bool:
+    low = " " + text.lower() + " "
+    return any(m in low for markers in _PERIODS.values() for m in markers)
+
+
+def extract_salary_text(description: str, max_len: int = 200) -> str:
+    """Find the compensation statement inside a job description.
+
+    Returns the matching sentence verbatim (trimmed), or "" when the listing
+    does not state pay. A match needs a money amount plus either a pay word
+    ("salary", "package", "compensation"...) or a pay period ("per month").
+    Company revenue, budgets and "5 years" are not treated as pay.
+    The raw text is what gets stored; parse_salary() derives numbers later."""
+    if not description:
+        return ""
+    text = re.sub(r"<[^>]+>", " ", description)
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-Z])|[\r\n]+|\s[•·|]\s", text)
+    best = ""
+    best_rank = 99
+    for part in parts:
+        chunk = " ".join(part.split())
+        if not chunk or not re.search(r"\d", chunk):
+            continue
+        has_money = bool(_MONEY.search(chunk))
+        has_word = bool(_PAY_WORDS.search(chunk))
+        has_period = _period_marked(chunk)
+        if has_money and (has_word or has_period):
+            rank = 0 if has_word else 1
+        elif has_word and parse_salary(chunk) and (parse_salary(chunk).max or 0) >= 1000 \
+                and not _NOT_PAY.search(chunk):
+            rank = 2
+        else:
+            continue
+        if has_money and _NOT_PAY.search(chunk) and not has_word:
+            continue
+        if rank < best_rank:
+            best, best_rank = chunk, rank
+    if len(best) > max_len:
+        m = _MONEY.search(best) or re.search(r"\d", best)
+        start = max(0, (m.start() if m else 0) - max_len // 3)
+        best = best[start:start + max_len].strip()
+    return best
